@@ -91,3 +91,12 @@
     }
   }
 }
+
+.CodeMirror,
+.editor-toolbar {
+  border-radius: 0;
+}
+.CodeMirror,
+.CodeMirror-scroll {
+  min-height: 150px;
+}
