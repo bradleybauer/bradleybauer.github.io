@@ -5,14 +5,17 @@
   {%- seo -%}
   <link rel="stylesheet" href="{{ "/assets/main.css" | relative_url }}">
   {%- feed_meta -%}
-  {%- if jekyll.environment == 'production' and site.google_analytics -%}
-    {%- include google-analytics.html -%}
-  {%- endif -%}
 
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="msapplication-TileColor" content="#da532c">
+  <meta name="theme-color" content="#ffffff">
+
+  
   <!-- Simple Markdown Editor -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.css"/>
   <script src="https://cdn.jsdelivr.net/simplemde/latest/simplemde.min.js"></script>
-
+  
   <!-- reCAPTCHA -->
   <script src='https://www.google.com/recaptcha/api.js' async defer></script>
+
 </head>
