@@ -35,6 +35,9 @@ staticman_url: https://bradleybauer-blog-comments.herokuapp.com/v3/entry/github/
 theme: minima
 plugins:
   - jekyll-feed
+  - jekyll-seo-tag
+  - jekyll-target-blank
+  - jekyll-sitemap
 
 # Exclude from processing.
 # The following items will not be processed, by default.
