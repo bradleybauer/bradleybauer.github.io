@@ -1,29 +1,33 @@
 ---
 layout: post
-title:  "Welcome to Jekyll!"
-date:   2022-08-24 12:13:43 -0400
-categories: jekyll update
+title: "Write a Post"
+date: 2021-06-31
+categories: jekyll blogging
 ---
-You’ll find this post in your `_posts` directory. Go ahead and edit it and re-build the site to see your changes. You can rebuild the site in many different ways, but the most common way is to run `jekyll serve`, which launches a web server and auto-regenerates your site when a file is updated.
 
-Jekyll requires blog post files to be named according to the following format:
+The goal of this article is to add some extra info
+about blog writing with _Jekyll_.
 
-`YEAR-MONTH-DAY-title.MARKUP`
+## Structure your posts
 
-Where `YEAR` is a four-digit number, `MONTH` and `DAY` are both two-digit numbers, and `MARKUP` is the file extension representing the format used in the file. After that, include the necessary front matter. Take a look at the source for this post to get an idea about how it works.
+Use level 2 (`##`) and if necessary level 3 (`###`) titles
+to structure your posts.
 
-Jekyll also offers powerful support for code snippets:
+## Display code snippets
 
-{% highlight ruby %}
-def print_hi(name)
-  puts "Hi, #{name}"
-end
-print_hi('Tom')
-#=> prints 'Hi, Tom' to STDOUT.
-{% endhighlight %}
+You can display a block of code like the following using triple backticks.
+You can also specify the language after the first triple backticks.
 
-Check out the [Jekyll docs][jekyll-docs] for more info on how to get the most out of Jekyll. File all bugs/feature requests at [Jekyll’s GitHub repo][jekyll-gh]. If you have questions, you can ask them on [Jekyll Talk][jekyll-talk].
+```python
+def hello(name):
+    return f'hello {name}'
+```
 
-[jekyll-docs]: https://jekyllrb.com/docs/home
-[jekyll-gh]:   https://github.com/jekyll/jekyll
-[jekyll-talk]: https://talk.jekyllrb.com/
+## Add images
+
+Create an `assets` folder where you can put all your images,
+then display them with a link starting with an exclamative mark like this:
+`![my inspiring image]({{ "/assets/sample-image.jpg" | relative_url }})`.
+
+![my inspiring image]({{ "/assets/sample-image.jpg" | relative_url }})
+_Photo by [Ian Schneider](https://unsplash.com/@goian)_
