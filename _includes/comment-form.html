@@ -1,13 +1,36 @@
 <form method="POST" action="{{ site.staticman_url }}" class="comment-form">
-  <input name="options[redirect]" type="hidden" value="{{ page.url | absolute_url }}">
-  <input name="options[slug]" type="hidden" value="{{ page.slug }}">
-  <input name="fields[parent_id]" type="hidden" value="{{include.parent_id}}">
+  <input name="options[redirect]" type="hidden" value="{{ 'comment-success' | absolute_url }}">
+  <input name="options[redirectError]" type="hidden" value="{{ 'comment-error' | absolute_url }}">
+  <input name="options[slug]" type="hidden" value="{{ page.slug }}" />
+  <input name="fields[parent_id]" type="hidden" value="{{ include.parent_id }}" />
+  
+  <input type="hidden" name="options[reCaptcha][siteKey]" value="6Le9cqYhAAAAAEJ_S_SGmsXpoXMqP8pBmZVm_B2C">
+  <input type="hidden" name="options[reCaptcha][secret]" value="OhX4H3RpVjCqs5E9hU65F4h/Y0jw1V0xgoqkQQLai0xZFIrMm+FkNj0HTOY464Prj1uXHRDyf3KMAiRwpF8ILluwNDj4PlriyhOGvXKTXONI7mVIrYQMlDhNGeTx5Qx9tPgIbXi25wvVYSG/QjKUR4KzKrr2yI8uOKZnT3Bc4Fcskmp1jeE3GT5Duj1DmB/i6d1z53knVxNGrTHiYaI7EXGGFVCtDbFZJUwxwBPnPRNfBn0zH6FHaYVTSHhGEnHwdUsPwhRVD6oeLLGW70bLwoI4auiwtK4dZ27D9k8FzR2P/oSc33dP0mV+VBwHG2m5cT0FRt71/1njJWRDvVGWZQ==">
 
-  <textarea class="comment-message" name="fields[message]" placeholder="Comment (markdown accepted)" required></textarea>
-  <div class="comment-bottom">
-    <input class="comment-name" name="fields[name]" type="text" placeholder="Name" required>
-    <button class="comment-submit" type="submit">SEND</button>
-  </div>
+  <input
+      class="comment-name"
+      name="fields[name]"
+      type="text"
+      placeholder="Name"
+      required
+    />
+
+  <textarea
+    id="message-{{ include.parent_id }}"
+    class="comment-message"
+    name="fields[message]"
+    placeholder="Comment (markdown accepted)"
+    required
+  ></textarea>
+    
+  <div 
+    class="g-recaptcha" 
+    data-sitekey="6Le9cqYhAAAAAEJ_S_SGmsXpoXMqP8pBmZVm_B2C"
+  ></div>
+
+  <button class="comment-submit" >
+    SEND
+  </button>
 </form>
 
 <script>
@@ -18,4 +41,4 @@
     status: false,
     placeholder: "Comment (markdown supported)",
   });
-</script>
+</script> 
