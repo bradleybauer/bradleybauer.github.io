@@ -25,6 +25,21 @@ def hello(name):
 
 ## Add images
 
+$$
+\left(\vec{\alpha}\right)
+=
+\begin{bmatrix}
+    1 & 1 & 1 \\
+    2 & 2 & 2
+\end{bmatrix}
+\cdot
+\begin{bmatrix}
+    4 \\
+    2 \\
+    0
+\end{bmatrix}
+$$
+
 Create an `assets` folder where you can put all your images,
 then display them with a link starting with an exclamative mark like this:
 `![my inspiring image]({{ "/assets/sample-image.jpg" | relative_url }})`.
