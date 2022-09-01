@@ -1,6 +1,6 @@
 ---
 layout: post
-title: "Write a Post 2"
+title: "Write a Post"
 date: 2021-06-31
 categories: jekyll blogging
 ---

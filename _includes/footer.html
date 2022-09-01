@@ -8,7 +8,7 @@
         </div>
 
         <nav class="footer-nav">
-            <a  href="{{ "/" | relative_url }}">Articles</a>
+            <a  href="{{ "/" | relative_url }}">Posts</a>
             {%- for path in page_paths -%}
                 {%- assign my_page = site.pages | where: "path", path | first -%}
                 {%- if my_page.title -%}
