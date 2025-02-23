@@ -82,6 +82,9 @@
     let modelSession = null;
     let hintsEnabled = false; // Hints switch off by default.
 
+    // Global flag to lock input during move processing.
+    let inputLocked = false;
+
     // Update counters display.
     function updateCounters() {
       document.getElementById('counters').innerHTML =
@@ -103,6 +106,8 @@
       previousPlayerSkipped = false;
       gameOver = false;
       updateStatus("Agent's turn (Black).");
+      // Ensure input is unlocked when resetting.
+      inputLocked = false;
     }
 
     // Render the board UI and, if hints are enabled and it's the human's turn (White), highlight legal moves.
@@ -144,7 +149,7 @@
       document.getElementById('status').innerText = message;
     }
 
-    // Compute legal actions for a given player (mirroring the Python Othello.get_legal_actions).
+    // Compute legal actions for a given player.
     function getLegalActions(forPlayer) {
       let legalActions = [];
       // If out of stones, only no–op is allowed.
@@ -213,7 +218,7 @@
       return legalActions;
     }
 
-    // Apply a move (mirroring Python Othello.step).
+    // Apply a move.
     function applyMove(action) {
       let done = false;
       if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
@@ -263,25 +268,39 @@
       return done;
     }
 
-    // Human click handler. Only allow clicks when it's the human's turn (White).
+    // Human click handler with input lock.
     async function onCellClick(event) {
-      if (gameOver || currentPlayer !== WHITE) return;
+      // Only process click if game is not over, it's human's turn, and input is not locked.
+      if (gameOver || currentPlayer !== WHITE || inputLocked) return;
+
+      inputLocked = true; // Lock further clicks immediately.
+      
       const row = parseInt(event.currentTarget.dataset.row);
       const col = parseInt(event.currentTarget.dataset.col);
       const legal = getLegalActions(WHITE);
       let valid = legal.some(a => a.row === row && a.col === col);
+      
       if (!valid) {
         updateStatus("Illegal move. Try again.");
+        inputLocked = false; // Unlock if move is invalid.
         return;
       }
+      
       let gameEnded = applyMove({ row, col });
       renderBoard();
       if (gameEnded) {
         endGame();
+        inputLocked = false;
         return;
       }
+      
       updateStatus("Agent's turn (Black).");
-      setTimeout(agentMove, 500);
+      // Wait a moment before the agent moves.
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await agentMove();
+      
+      // Unlock input when it's the human's turn again.
+      inputLocked = false;
     }
 
     // Agent move: selects (among valid moves for Black) the one with the highest logit.
@@ -293,7 +312,6 @@
           inputArray.push(board[i][j]);
         }
       }
-      // Input is a 1x64 tensor.
       const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
       let feeds = {};
       const inputName = modelSession.inputNames[0];
