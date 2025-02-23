@@ -58,17 +58,21 @@
   <!-- ONNX Runtime Web -->
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   <script>
-    // Constants and game state.
+    // Global constants and game state.
     const BOARD_SIZE = 8;
     const EMPTY = 0, BLACK = 1, WHITE = -1;
     const NOOP_ACTION = { row: 8, col: 0 }; // represents a no–move action
+
+    // Each player starts with 32 stones, but 2 are on the board, so 30 remain.
+    let blackStones, whiteStones;
+
     let board = [];
-    let currentPlayer = BLACK; // human will play as Black, agent as White
+    let currentPlayer = BLACK; // Human plays Black, agent plays White.
     let previousPlayerSkipped = false;
     let gameOver = false;
     let modelSession = null;
 
-    // Initialize board with standard starting positions.
+    // Initialize board with standard starting positions and stone counts.
     function initBoard() {
       board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
       const mid = BOARD_SIZE / 2;
@@ -76,6 +80,9 @@
       board[mid][mid] = WHITE;
       board[mid - 1][mid] = BLACK;
       board[mid][mid - 1] = BLACK;
+      // Reset stone counts (30 stones available per player).
+      blackStones = 30;
+      whiteStones = 30;
       currentPlayer = BLACK;
       previousPlayerSkipped = false;
       gameOver = false;
@@ -112,6 +119,20 @@
     // Compute legal actions for a given player.
     function getLegalActions(forPlayer) {
       let legalActions = [];
+      // Check if the current player is out of stones.
+      if (forPlayer === BLACK) {
+        if (blackStones <= 0) {
+          legalActions.push(NOOP_ACTION);
+          return legalActions;
+        }
+      } else {
+        if (whiteStones <= 0) {
+          legalActions.push(NOOP_ACTION);
+          return legalActions;
+        }
+      }
+      
+      // Find open positions adjacent to an enemy piece.
       let openPositions = [];
       for (let i = 0; i < BOARD_SIZE; i++) {
         for (let j = 0; j < BOARD_SIZE; j++) {
@@ -169,7 +190,14 @@
     // This function mimics the Python simulation's "step" method.
     function applyMove(action) {
       let done = false;
+      // Check if the move is not a no–op.
       if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
+        // Deduct a stone from the current player.
+        if (currentPlayer === BLACK) {
+          blackStones--;
+        } else {
+          whiteStones--;
+        }
         const i = action.row, j = action.col;
         board[i][j] = currentPlayer;
         // For each of the eight directions, flip opponent pieces.
@@ -199,6 +227,7 @@
         }
         previousPlayerSkipped = false;
       } else {
+        // If a no–op is chosen, check if it is consecutive.
         if (previousPlayerSkipped) {
           done = true;
         }
@@ -207,6 +236,7 @@
       // Check if the board is full.
       let full = board.flat().every(cell => cell !== EMPTY);
       if (full) done = true;
+      // Switch player.
       currentPlayer = -currentPlayer;
       return done;
     }
