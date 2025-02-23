@@ -2,35 +2,69 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Othello AI with Brain Visualization</title>
-  <!-- Using Bootstrap for a modern, responsive layout -->
+  <title>Othello AI (Perfect-Fit Board + Hover Preview, Inset Highlight)</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <style>
     body {
-      background: #f8f9fa;
+      background: #f0f2f5;
+      color: #333;
+      font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding-top: 20px;
+    }
+
+    h1, .text-center {
+      color: #333;
+    }
+
+    /* 
+      The board is a fixed 430px width to exactly fit:
+      - 8 columns × 50px each = 400px
+      - 7 gaps × 2px = 14px
+      - 2×(8px padding) = 16px
+      => total 430px
+    */
     .board {
+      width: 430px;
       display: grid;
       grid-template-columns: repeat(8, 50px);
       grid-template-rows: repeat(8, 50px);
       gap: 2px;
-      margin: 20px auto;
-      max-width: 420px; /* board width */
+      padding: 8px;
+      background: #4caf50;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      border-radius: 8px;
+      margin: 0 auto;
       position: relative;
     }
+
     .cell {
       width: 50px;
       height: 50px;
-      background: green;
-      border: 1px solid #333;
+      background: #66bb6a;
+      border-radius: 4px;
       position: relative;
       cursor: pointer;
-      overflow: hidden;
+      transition: background 0.1s ease;
     }
-    /* Highlight legal moves with a yellow border */
+    .cell:hover {
+      background: #5da56d;
+    }
+
+    /*
+      LEGAL MOVE HIGHLIGHT
+      Using INSET box-shadow so the ring is drawn *inside* the cell boundary.
+    */
     .cell.legal {
-      border: 3px solid yellow;
+      box-shadow: inset 0 0 0 3px #ffeb3b;
+      z-index: 2;
     }
+
+    /* Pieces */
     .piece {
       width: 40px;
       height: 40px;
@@ -41,29 +75,68 @@
       z-index: 2;
     }
     .piece.black {
-      background: black;
+      background: #2b2b2b;
     }
     .piece.white {
-      background: white;
-      border: 1px solid #333;
+      background: #f9f9f9;
+      border: 1px solid #ddd;
     }
 
-    /* Heatmap for AI Brain Visualization */
+    /* A "ghost" piece for hover preview: semitransparent. */
+    .piece.ghost {
+      opacity: 0.5;
+    }
+
+    /* Heatmap overlay for AI Brain */
     .heatmap {
       position: absolute;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       width: 100%;
       height: 100%;
       z-index: 1;
       pointer-events: none;
-      opacity: 0.65;
+      opacity: 0.5;
+      border-radius: 4px;
+    }
+
+    /* For flipping preview, highlight existing pieces with a ring */
+    .preview-flip {
+      box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.7);
+      z-index: 3;
+    }
+
+    .score-bar-container {
+      max-width: 430px;
+      margin: 15px auto;
+    }
+    .progress {
+      height: 26px;
+      border-radius: 4px;
+      background-color: #ddd;
+      box-shadow: inset 0 1px 2px rgba(0,0,0,0.1);
+    }
+    .progress-bar {
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+    .progress-bar.bg-dark {
+      background-color: #444 !important;
+    }
+    .progress-bar.bg-light {
+      background-color: #eee !important;
+      color: #333 !important;
+    }
+
+    #status, #remainingStones {
+      margin-top: 8px;
+      color: #333;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <h1 class="text-center my-4">Othello AI</h1>
+    <h1 class="text-center mb-4">Othello AI</h1>
+
     <div class="d-flex justify-content-center mb-3">
       <button id="resetBtn" class="btn btn-primary me-3">Reset Game</button>
       <!-- Hints switch -->
@@ -77,10 +150,9 @@
         <label class="form-check-label" for="agentBrainSwitch">Show AI Brain</label>
       </div>
     </div>
-    
-    <!-- Score Bar (same width as the board) -->
-    <div class="mx-auto mb-3" style="max-width: 420px;">
-      <div class="progress" style="height: 30px;">
+
+    <div class="score-bar-container">
+      <div class="progress">
         <div 
           id="blackScoreBar" 
           class="progress-bar bg-dark" 
@@ -108,10 +180,8 @@
 
     <div id="board" class="board"></div>
 
-    <!-- Status messages -->
-    <div id="status" class="text-center mt-3"></div>
-    <!-- NEW: Show "You have X pieces left" only if X < 3 -->
-    <div id="remainingStones" class="text-center mt-2"></div>
+    <div id="status" class="text-center"></div>
+    <div id="remainingStones" class="text-center"></div>
   </div>
 
   <!-- ONNX Runtime Web -->
@@ -128,11 +198,12 @@
     let gameOver = false;
     let modelSession = null;
 
-    let hintsEnabled = false; 
-    let agentBrainEnabled = false; 
+    let hintsEnabled = false;
+    let agentBrainEnabled = false;
     let agentProbs = new Array(65).fill(0);
 
-    // Initialize the board, set counters, etc.
+    let previewElements = [];
+
     function initBoard() {
       board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
       const mid = Math.floor(BOARD_SIZE / 2);
@@ -149,12 +220,11 @@
       updateStatus("Agent's turn (Black).");
     }
 
-    // Called after each move to re-draw the board
     function renderBoard() {
       const boardDiv = document.getElementById('board');
       boardDiv.innerHTML = '';
+      clearPreview();
 
-      // If it's your turn (WHITE) and hints are enabled, compute legal moves
       let legalMoves = [];
       if (hintsEnabled && currentPlayer === WHITE) {
         legalMoves = getLegalActions(WHITE).filter(
@@ -168,21 +238,24 @@
           cellDiv.className = 'cell';
           cellDiv.dataset.row = i;
           cellDiv.dataset.col = j;
-          cellDiv.addEventListener('click', onCellClick);
 
-          // Highlight if it's a legal move (human + hints)
+          // If it's a legal move, highlight + add hover listeners
           if (legalMoves.some(move => move.row === i && move.col === j)) {
             cellDiv.classList.add('legal');
+            cellDiv.addEventListener('mouseenter', () => previewMove(i, j));
+            cellDiv.addEventListener('mouseleave', clearPreview);
           }
 
-          // Draw any piece
+          cellDiv.addEventListener('click', onCellClick);
+
+          // Show existing piece
           if (board[i][j] === BLACK || board[i][j] === WHITE) {
             const pieceDiv = document.createElement('div');
             pieceDiv.className = 'piece ' + (board[i][j] === BLACK ? 'black' : 'white');
             cellDiv.appendChild(pieceDiv);
           }
 
-          // If Agent Brain is on, overlay probability heatmap
+          // AI Brain heatmap
           if (agentBrainEnabled) {
             const idx = i * BOARD_SIZE + j;
             const prob = agentProbs[idx];
@@ -193,15 +266,81 @@
               cellDiv.appendChild(heatmapDiv);
             }
           }
+
           boardDiv.appendChild(cellDiv);
         }
       }
-      // Update the stacked bar, also show/hide "You have X left" if X<3
       updateScoreBar();
       updateRemainingStonesMessage();
     }
 
-    // Show "You have X pieces left" only if X < 3
+    /******************************
+     * PREVIEW FLIPS ON HOVER
+     ******************************/
+    function previewMove(row, col) {
+      if (currentPlayer !== WHITE || gameOver) return;
+      const flips = getFlipsIfMove(row, col, WHITE);
+
+      // Place a ghost piece in that cell
+      const cellSelector = `[data-row="${row}"][data-col="${col}"]`;
+      const cellElem = document.querySelector(cellSelector);
+      if (!cellElem) return;
+
+      const ghostPiece = document.createElement('div');
+      ghostPiece.className = 'piece white ghost';
+      cellElem.appendChild(ghostPiece);
+      previewElements.push(ghostPiece);
+
+      // Highlight each piece that would flip
+      flips.forEach(pos => {
+        const flipCellSelector = `[data-row="${pos.row}"][data-col="${pos.col}"] .piece`;
+        const piece = document.querySelector(flipCellSelector);
+        if (piece) {
+          piece.classList.add('preview-flip');
+          previewElements.push(piece);
+        }
+      });
+    }
+
+    function clearPreview() {
+      previewElements.forEach(el => {
+        if (el.classList.contains('ghost')) {
+          el.remove();
+        }
+        el.classList.remove('preview-flip');
+      });
+      previewElements = [];
+    }
+
+    function getFlipsIfMove(row, col, player) {
+      if (board[row][col] !== EMPTY) return [];
+      let flips = [];
+      for (let di = -1; di <= 1; di++) {
+        for (let dj = -1; dj <= 1; dj++) {
+          if (di === 0 && dj === 0) continue;
+          let k = 1;
+          let positionsToFlip = [];
+          while (true) {
+            let ip = row + k * di;
+            let jp = col + k * dj;
+            if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
+            if (board[ip][jp] === EMPTY) break;
+            if (board[ip][jp] === -player) {
+              positionsToFlip.push({ row: ip, col: jp });
+            }
+            if (board[ip][jp] === player) {
+              if (positionsToFlip.length > 0) {
+                flips.push(...positionsToFlip);
+              }
+              break;
+            }
+            k++;
+          }
+        }
+      }
+      return flips;
+    }
+
     function updateRemainingStonesMessage() {
       const msgDiv = document.getElementById('remainingStones');
       if (whiteStones < 3) {
@@ -211,7 +350,6 @@
       }
     }
 
-    // Update the stacked bar with the number of black/white discs ON THE BOARD
     function updateScoreBar() {
       let blackCount = 0, whiteCount = 0;
       for (let i = 0; i < BOARD_SIZE; i++) {
@@ -238,22 +376,20 @@
       whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
     }
 
-    // Map probability to a color (light pink => bright red)
     function getColorForProb(prob) {
-      const startR = 255, startG = 229, startB = 229; // light pink
-      const endR = 255, endG = 0, endB = 0;          // red
+      const startR = 255, startG = 229, startB = 229;
+      const endR = 255, endG = 0, endB = 0;
       const r = Math.round(startR + (endR - startR) * prob);
       const g = Math.round(startG + (endG - startG) * prob);
       const b = Math.round(startB + (endB - startB) * prob);
       return `rgb(${r}, ${g}, ${b})`;
     }
 
-    // Utility: update status text
     function updateStatus(message) {
       document.getElementById('status').innerText = message;
     }
 
-    // Get list of legal moves for a player
+    /* Main Othello logic */
     function getLegalActions(forPlayer) {
       let legalActions = [];
       if (forPlayer === BLACK) {
@@ -267,7 +403,7 @@
           return legalActions;
         }
       }
-      
+
       let openPositions = [];
       for (let i = 0; i < BOARD_SIZE; i++) {
         for (let j = 0; j < BOARD_SIZE; j++) {
@@ -290,18 +426,19 @@
           }
         }
       }
-      
+
       openPositions.forEach(pos => {
         let valid = false;
         for (let di = -1; di <= 1; di++) {
           for (let dj = -1; dj <= 1; dj++) {
             if (di === 0 && dj === 0) continue;
             for (let k = 1; k < BOARD_SIZE; k++) {
-              let ip = pos.row + k * di, jp = pos.col + k * dj;
+              let ip = pos.row + k * di;
+              let jp = pos.col + k * dj;
               if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
               if (board[ip][jp] === EMPTY) break;
               if (board[ip][jp] === -forPlayer) {
-                // Keep track, might flip
+                // possible flips
               } else if (board[ip][jp] === forPlayer && k >= 2) {
                 valid = true;
                 break;
@@ -319,7 +456,6 @@
       return [...new Set(legalActions.map(JSON.stringify))].map(JSON.parse);
     }
 
-    // Place a stone (if not NOOP), flip, etc.
     function applyMove(action) {
       let done = false;
       if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
@@ -336,7 +472,8 @@
             let k = 1;
             let positionsToFlip = [];
             while (true) {
-              let ip = i + k * di, jp = j + k * dj;
+              let ip = i + k * di;
+              let jp = j + k * dj;
               if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
               if (board[ip][jp] === EMPTY) break;
               if (board[ip][jp] === -currentPlayer) {
@@ -356,7 +493,6 @@
         }
         previousPlayerSkipped = false;
       } else {
-        // It's a NOOP move
         if (previousPlayerSkipped) {
           done = true;
         }
@@ -369,7 +505,6 @@
       return done;
     }
 
-    // Human move
     async function onCellClick(event) {
       if (gameOver || currentPlayer !== WHITE) return;
       const row = parseInt(event.currentTarget.dataset.row);
@@ -390,10 +525,9 @@
       setTimeout(agentMove, 500);
     }
 
-    // AI move
     async function agentMove() {
       if (gameOver) return;
-      // Flatten board to 1D
+
       let inputArray = [];
       for (let i = 0; i < BOARD_SIZE; i++) {
         for (let j = 0; j < BOARD_SIZE; j++) {
@@ -408,9 +542,8 @@
         const results = await modelSession.run(feeds);
         const outputName = modelSession.outputNames[0];
         const logits = results[outputName].data;
-        const legal = getLegalActions(BLACK);
 
-        // Softmax among legal moves
+        const legal = getLegalActions(BLACK);
         let sumExp = 0;
         let exps = [];
         for (let move of legal) {
@@ -425,7 +558,6 @@
           agentProbs[item.index] = item.valExp / sumExp;
         }
 
-        // Pick best move (highest logit)
         let bestMove = legal[0];
         let bestLogit = -Infinity;
         for (let move of legal) {
@@ -436,6 +568,7 @@
             bestMove = move;
           }
         }
+
         let gameEnded = applyMove(bestMove);
         renderBoard();
         if (gameEnded) {
@@ -450,7 +583,6 @@
       }
     }
 
-    // Auto-skip if White has no legal moves
     function checkHumanAutoSkip() {
       const legal = getLegalActions(WHITE);
       if (legal.length === 1 && legal[0].row === NOOP_ACTION.row && legal[0].col === NOOP_ACTION.col) {
@@ -468,7 +600,6 @@
       }
     }
 
-    // End-of-game status
     function endGame() {
       gameOver = true;
       let blackCount = 0, whiteCount = 0;
@@ -489,14 +620,12 @@
       updateStatus(message);
     }
 
-    // Reset + start agent's move
     function resetGame() {
       initBoard();
       renderBoard();
       setTimeout(agentMove, 500);
     }
 
-    // Load ONNX model
     async function loadModel() {
       try {
         modelSession = await ort.InferenceSession.create('./agent.onnx');
@@ -507,7 +636,6 @@
       }
     }
 
-    // On load
     window.onload = async function() {
       await loadModel();
       resetGame();
