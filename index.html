@@ -48,7 +48,7 @@
 </head>
 <body>
   <div class="container">
-    <h1 class="text-center my-4">Othello vs ONNX Agent</h1>
+    <h1 class="text-center my-4">Othello AI</h1>
     <div class="d-flex justify-content-center mb-3">
       <button id="resetBtn" class="btn btn-primary me-3">Reset Game</button>
       <!-- Hints switch -->
@@ -57,6 +57,8 @@
         <label class="form-check-label" for="hintsSwitch">Show Hints</label>
       </div>
     </div>
+    <!-- Counters for remaining pieces -->
+    <div id="counters" class="text-center mb-3"></div>
     <div id="board" class="board"></div>
     <div id="status" class="text-center mt-3"></div>
   </div>
@@ -67,16 +69,24 @@
     // Global constants and game state.
     const BOARD_SIZE = 8;
     const EMPTY = 0, BLACK = 1, WHITE = -1;
-    const NOOP_ACTION = { row: BOARD_SIZE, col: 0 }; // (8,0) represents no–move
+    // Using (8,0) as the no–move action.
+    const NOOP_ACTION = { row: BOARD_SIZE, col: 0 };
 
     // Each player starts with 32 stones, but 2 are on the board, so 30 remain.
     let blackStones, whiteStones;
     let board = [];
-    let currentPlayer = BLACK; // Human plays Black; agent plays White.
+    // Set currentPlayer = BLACK so that the agent (black) goes first.
+    let currentPlayer = BLACK;
     let previousPlayerSkipped = false;
     let gameOver = false;
     let modelSession = null;
-    let hintsEnabled = false; // Hints are off by default.
+    let hintsEnabled = false; // Hints switch off by default.
+
+    // Update counters display.
+    function updateCounters() {
+      document.getElementById('counters').innerHTML =
+        `Black Pieces Remaining (Agent): ${blackStones} &nbsp; | &nbsp; White Pieces Remaining (You): ${whiteStones}`;
+    }
 
     // Initialize the board and stone counts.
     function initBoard() {
@@ -88,21 +98,22 @@
       board[mid][mid - 1] = BLACK;
       blackStones = 30;
       whiteStones = 30;
+      // Agent is Black, so agent goes first.
       currentPlayer = BLACK;
       previousPlayerSkipped = false;
       gameOver = false;
-      updateStatus("Your turn (Black).");
+      updateStatus("Agent's turn (Black).");
     }
 
-    // Render the board UI and optionally highlight legal moves.
+    // Render the board UI and, if hints are enabled and it's the human's turn (White), highlight legal moves.
     function renderBoard() {
       const boardDiv = document.getElementById('board');
       boardDiv.innerHTML = '';
 
-      // If hints are enabled and it's human's turn, compute legal moves.
+      // Compute legal moves only if hints are enabled and it's the human's turn.
       let legalMoves = [];
-      if (hintsEnabled && currentPlayer === BLACK) {
-        legalMoves = getLegalActions(BLACK).filter(
+      if (hintsEnabled && currentPlayer === WHITE) {
+        legalMoves = getLegalActions(WHITE).filter(
           move => !(move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
         );
       }
@@ -114,7 +125,6 @@
           cellDiv.dataset.row = i;
           cellDiv.dataset.col = j;
           cellDiv.addEventListener('click', onCellClick);
-          // Only highlight if hints are enabled.
           if (legalMoves.some(move => move.row === i && move.col === j)) {
             cellDiv.classList.add('legal');
           }
@@ -126,6 +136,7 @@
           boardDiv.appendChild(cellDiv);
         }
       }
+      updateCounters();
     }
 
     // Update the status display.
@@ -133,7 +144,7 @@
       document.getElementById('status').innerText = message;
     }
 
-    // Compute legal actions for a given player (mirrors the Python class logic).
+    // Compute legal actions for a given player (mirroring the Python Othello.get_legal_actions).
     function getLegalActions(forPlayer) {
       let legalActions = [];
       // If out of stones, only no–op is allowed.
@@ -175,7 +186,7 @@
         }
       }
       
-      // Validate each candidate move using flipping rules.
+      // Validate candidate moves using flipping rules.
       openPositions.forEach(pos => {
         let valid = false;
         for (let di = -1; di <= 1; di++) {
@@ -202,7 +213,7 @@
       return legalActions;
     }
 
-    // Apply a move to the board (mirrors the Python Othello.step).
+    // Apply a move (mirroring Python Othello.step).
     function applyMove(action) {
       let done = false;
       if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
@@ -213,7 +224,6 @@
         }
         const i = action.row, j = action.col;
         board[i][j] = currentPlayer;
-        // Flip enemy discs in all eight directions.
         for (let di = -1; di <= 1; di++) {
           for (let dj = -1; dj <= 1; dj++) {
             if (di === 0 && dj === 0) continue;
@@ -248,16 +258,17 @@
       if (board.flat().every(cell => cell !== EMPTY)) {
         done = true;
       }
+      // Switch turn: agent is Black, human is White.
       currentPlayer = -currentPlayer;
       return done;
     }
 
-    // Human cell click handler.
+    // Human click handler. Only allow clicks when it's the human's turn (White).
     async function onCellClick(event) {
-      if (gameOver || currentPlayer !== BLACK) return;
+      if (gameOver || currentPlayer !== WHITE) return;
       const row = parseInt(event.currentTarget.dataset.row);
       const col = parseInt(event.currentTarget.dataset.col);
-      const legal = getLegalActions(BLACK);
+      const legal = getLegalActions(WHITE);
       let valid = legal.some(a => a.row === row && a.col === col);
       if (!valid) {
         updateStatus("Illegal move. Try again.");
@@ -269,11 +280,11 @@
         endGame();
         return;
       }
-      updateStatus("Agent's turn (White).");
+      updateStatus("Agent's turn (Black).");
       setTimeout(agentMove, 500);
     }
 
-    // Agent move: selects the valid move with the highest logit.
+    // Agent move: selects (among valid moves for Black) the one with the highest logit.
     async function agentMove() {
       if (gameOver) return;
       let inputArray = [];
@@ -291,7 +302,7 @@
         const results = await modelSession.run(feeds);
         const outputName = modelSession.outputNames[0];
         const logits = results[outputName].data;
-        const legal = getLegalActions(WHITE);
+        const legal = getLegalActions(BLACK);
         let bestMove = legal[0];
         let bestLogit = -Infinity;
         for (let move of legal) {
@@ -312,7 +323,7 @@
           endGame();
           return;
         }
-        updateStatus("Your turn (Black).");
+        updateStatus("Your turn (White).");
         checkHumanAutoSkip();
       } catch (err) {
         console.error(err);
@@ -320,9 +331,9 @@
       }
     }
 
-    // Auto-skip human turn if no legal moves.
+    // Auto-skip human turn if no legal moves exist for White.
     function checkHumanAutoSkip() {
-      const legal = getLegalActions(BLACK);
+      const legal = getLegalActions(WHITE);
       if (legal.length === 1 && legal[0].row === NOOP_ACTION.row && legal[0].col === NOOP_ACTION.col) {
         updateStatus("No legal moves available. Skipping your turn...");
         setTimeout(() => {
@@ -332,13 +343,13 @@
             endGame();
             return;
           }
-          updateStatus("Agent's turn (White).");
+          updateStatus("Agent's turn (Black).");
           setTimeout(agentMove, 500);
         }, 1000);
       }
     }
 
-    // End-of-game display.
+    // End-of-game status.
     function endGame() {
       gameOver = true;
       let blackCount = 0, whiteCount = 0;
@@ -350,9 +361,9 @@
       });
       let message = `Game over. Black: ${blackCount}, White: ${whiteCount}. `;
       if (blackCount > whiteCount) {
-        message += "You win!";
+        message += "YOU LOSE!";
       } else if (whiteCount > blackCount) {
-        message += "Agent wins!";
+        message += "You win!";
       } else {
         message += "It's a draw!";
       }
@@ -363,6 +374,8 @@
     function resetGame() {
       initBoard();
       renderBoard();
+      // Since agent is Black and goes first, immediately trigger the agent move.
+      setTimeout(agentMove, 500);
     }
 
     // Load the ONNX model (ensure agent.onnx is in the same directory).
@@ -376,11 +389,9 @@
       }
     }
 
-    // Setup event listeners on load.
     window.onload = async function() {
       await loadModel();
       resetGame();
-      // Setup hints switch listener.
       document.getElementById('hintsSwitch').addEventListener('change', function(event) {
         hintsEnabled = event.target.checked;
         renderBoard();
