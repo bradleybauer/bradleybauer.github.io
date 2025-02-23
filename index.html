@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Othello AI</title>
+  <title>Othello AI with Brain Visualization</title>
   <!-- Using Bootstrap for a modern, responsive layout -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
   <style>
@@ -15,7 +15,8 @@
       grid-template-rows: repeat(8, 50px);
       gap: 2px;
       margin: 20px auto;
-      max-width: 420px;
+      max-width: 420px; /* board width */
+      position: relative;
     }
     .cell {
       width: 50px;
@@ -24,6 +25,7 @@
       border: 1px solid #333;
       position: relative;
       cursor: pointer;
+      overflow: hidden;
     }
     /* Highlight legal moves with a yellow border */
     .cell.legal {
@@ -36,6 +38,7 @@
       position: absolute;
       top: 5px;
       left: 5px;
+      z-index: 2;
     }
     .piece.black {
       background: black;
@@ -43,6 +46,18 @@
     .piece.white {
       background: white;
       border: 1px solid #333;
+    }
+
+    /* Heatmap for AI Brain Visualization */
+    .heatmap {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+      pointer-events: none;
+      opacity: 0.65;
     }
   </style>
 </head>
@@ -52,43 +67,72 @@
     <div class="d-flex justify-content-center mb-3">
       <button id="resetBtn" class="btn btn-primary me-3">Reset Game</button>
       <!-- Hints switch -->
-      <div class="form-check form-switch align-self-center">
+      <div class="form-check form-switch align-self-center me-3">
         <input class="form-check-input" type="checkbox" id="hintsSwitch">
         <label class="form-check-label" for="hintsSwitch">Show Hints</label>
       </div>
+      <!-- Agent Brain Visualization Switch -->
+      <div class="form-check form-switch align-self-center">
+        <input class="form-check-input" type="checkbox" id="agentBrainSwitch">
+        <label class="form-check-label" for="agentBrainSwitch">Show AI Brain</label>
+      </div>
     </div>
-    <!-- Counters for remaining pieces -->
-    <div id="counters" class="text-center mb-3"></div>
+    
+    <!-- Score Bar (same width as the board) -->
+    <div class="mx-auto mb-3" style="max-width: 420px;">
+      <div class="progress" style="height: 30px;">
+        <div 
+          id="blackScoreBar" 
+          class="progress-bar bg-dark" 
+          role="progressbar" 
+          style="width: 50%;" 
+          aria-valuenow="50" 
+          aria-valuemin="0" 
+          aria-valuemax="100"
+        >
+          Black: 0
+        </div>
+        <div 
+          id="whiteScoreBar" 
+          class="progress-bar bg-light text-dark" 
+          role="progressbar" 
+          style="width: 50%;" 
+          aria-valuenow="50" 
+          aria-valuemin="0" 
+          aria-valuemax="100"
+        >
+          White: 0
+        </div>
+      </div>
+    </div>
+
     <div id="board" class="board"></div>
+
+    <!-- Status messages -->
     <div id="status" class="text-center mt-3"></div>
+    <!-- NEW: Show "You have X pieces left" only if X < 3 -->
+    <div id="remainingStones" class="text-center mt-2"></div>
   </div>
 
   <!-- ONNX Runtime Web -->
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   <script>
-    // Global constants and game state.
     const BOARD_SIZE = 8;
     const EMPTY = 0, BLACK = 1, WHITE = -1;
-    // Using (8,0) as the no–move action.
     const NOOP_ACTION = { row: BOARD_SIZE, col: 0 };
 
-    // Each player starts with 32 stones, but 2 are on the board, so 30 remain.
     let blackStones, whiteStones;
     let board = [];
-    // Set currentPlayer = BLACK so that the agent (black) goes first.
     let currentPlayer = BLACK;
     let previousPlayerSkipped = false;
     let gameOver = false;
     let modelSession = null;
-    let hintsEnabled = false; // Hints switch off by default.
 
-    // Update counters display.
-    function updateCounters() {
-      document.getElementById('counters').innerHTML =
-        `Black Pieces Remaining (Agent): ${blackStones} &nbsp; | &nbsp; White Pieces Remaining (You): ${whiteStones}`;
-    }
+    let hintsEnabled = false; 
+    let agentBrainEnabled = false; 
+    let agentProbs = new Array(65).fill(0);
 
-    // Initialize the board and stone counts.
+    // Initialize the board, set counters, etc.
     function initBoard() {
       board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
       const mid = Math.floor(BOARD_SIZE / 2);
@@ -98,19 +142,19 @@
       board[mid][mid - 1] = BLACK;
       blackStones = 30;
       whiteStones = 30;
-      // Agent is Black, so agent goes first.
       currentPlayer = BLACK;
       previousPlayerSkipped = false;
       gameOver = false;
+      agentProbs.fill(0);
       updateStatus("Agent's turn (Black).");
     }
 
-    // Render the board UI and, if hints are enabled and it's the human's turn (White), highlight legal moves.
+    // Called after each move to re-draw the board
     function renderBoard() {
       const boardDiv = document.getElementById('board');
       boardDiv.innerHTML = '';
 
-      // Compute legal moves only if hints are enabled and it's the human's turn.
+      // If it's your turn (WHITE) and hints are enabled, compute legal moves
       let legalMoves = [];
       if (hintsEnabled && currentPlayer === WHITE) {
         legalMoves = getLegalActions(WHITE).filter(
@@ -125,29 +169,93 @@
           cellDiv.dataset.row = i;
           cellDiv.dataset.col = j;
           cellDiv.addEventListener('click', onCellClick);
+
+          // Highlight if it's a legal move (human + hints)
           if (legalMoves.some(move => move.row === i && move.col === j)) {
             cellDiv.classList.add('legal');
           }
+
+          // Draw any piece
           if (board[i][j] === BLACK || board[i][j] === WHITE) {
             const pieceDiv = document.createElement('div');
             pieceDiv.className = 'piece ' + (board[i][j] === BLACK ? 'black' : 'white');
             cellDiv.appendChild(pieceDiv);
           }
+
+          // If Agent Brain is on, overlay probability heatmap
+          if (agentBrainEnabled) {
+            const idx = i * BOARD_SIZE + j;
+            const prob = agentProbs[idx];
+            if (prob > 0) {
+              const heatmapDiv = document.createElement('div');
+              heatmapDiv.className = 'heatmap';
+              heatmapDiv.style.backgroundColor = getColorForProb(prob);
+              cellDiv.appendChild(heatmapDiv);
+            }
+          }
           boardDiv.appendChild(cellDiv);
         }
       }
-      updateCounters();
+      // Update the stacked bar, also show/hide "You have X left" if X<3
+      updateScoreBar();
+      updateRemainingStonesMessage();
     }
 
-    // Update the status display.
+    // Show "You have X pieces left" only if X < 3
+    function updateRemainingStonesMessage() {
+      const msgDiv = document.getElementById('remainingStones');
+      if (whiteStones < 3) {
+        msgDiv.innerText = `You have ${whiteStones} pieces left.`;
+      } else {
+        msgDiv.innerText = '';
+      }
+    }
+
+    // Update the stacked bar with the number of black/white discs ON THE BOARD
+    function updateScoreBar() {
+      let blackCount = 0, whiteCount = 0;
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        for (let j = 0; j < BOARD_SIZE; j++) {
+          if (board[i][j] === BLACK) blackCount++;
+          else if (board[i][j] === WHITE) whiteCount++;
+        }
+      }
+      const total = blackCount + whiteCount;
+      let blackPct = 0, whitePct = 0;
+      if (total > 0) {
+        blackPct = (blackCount / total) * 100;
+        whitePct = (whiteCount / total) * 100;
+      }
+
+      const blackBar = document.getElementById('blackScoreBar');
+      blackBar.style.width = blackPct + '%';
+      blackBar.textContent = `Black: ${blackCount}`;
+      blackBar.setAttribute('aria-valuenow', blackPct.toFixed(1));
+
+      const whiteBar = document.getElementById('whiteScoreBar');
+      whiteBar.style.width = whitePct + '%';
+      whiteBar.textContent = `White: ${whiteCount}`;
+      whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
+    }
+
+    // Map probability to a color (light pink => bright red)
+    function getColorForProb(prob) {
+      const startR = 255, startG = 229, startB = 229; // light pink
+      const endR = 255, endG = 0, endB = 0;          // red
+      const r = Math.round(startR + (endR - startR) * prob);
+      const g = Math.round(startG + (endG - startG) * prob);
+      const b = Math.round(startB + (endB - startB) * prob);
+      return `rgb(${r}, ${g}, ${b})`;
+    }
+
+    // Utility: update status text
     function updateStatus(message) {
       document.getElementById('status').innerText = message;
     }
 
-    // Compute legal actions for a given player (mirroring the Python Othello.get_legal_actions).
+    // Get list of legal moves for a player
     function getLegalActions(forPlayer) {
       let legalActions = [];
-      // If out of stones, only no–op is allowed.
       if (forPlayer === BLACK) {
         if (blackStones <= 0) {
           legalActions.push(NOOP_ACTION);
@@ -160,7 +268,6 @@
         }
       }
       
-      // Find empty positions adjacent to an enemy.
       let openPositions = [];
       for (let i = 0; i < BOARD_SIZE; i++) {
         for (let j = 0; j < BOARD_SIZE; j++) {
@@ -179,14 +286,11 @@
               }
               if (available) break;
             }
-            if (available) {
-              openPositions.push({ row: i, col: j });
-            }
+            if (available) openPositions.push({ row: i, col: j });
           }
         }
       }
       
-      // Validate candidate moves using flipping rules.
       openPositions.forEach(pos => {
         let valid = false;
         for (let di = -1; di <= 1; di++) {
@@ -195,25 +299,27 @@
             for (let k = 1; k < BOARD_SIZE; k++) {
               let ip = pos.row + k * di, jp = pos.col + k * dj;
               if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
-              if (k >= 2 && board[ip][jp] === forPlayer) {
+              if (board[ip][jp] === EMPTY) break;
+              if (board[ip][jp] === -forPlayer) {
+                // Keep track, might flip
+              } else if (board[ip][jp] === forPlayer && k >= 2) {
                 valid = true;
                 break;
-              }
-              if (board[ip][jp] !== -forPlayer) {
+              } else {
                 break;
               }
             }
             if (valid) break;
           }
-          if (valid) break;
+          if (valid) legalActions.push({ row: pos.row, col: pos.col });
         }
-        if (valid) legalActions.push({ row: pos.row, col: pos.col });
       });
+
       if (legalActions.length === 0) legalActions.push(NOOP_ACTION);
-      return legalActions;
+      return [...new Set(legalActions.map(JSON.stringify))].map(JSON.parse);
     }
 
-    // Apply a move (mirroring Python Othello.step).
+    // Place a stone (if not NOOP), flip, etc.
     function applyMove(action) {
       let done = false;
       if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
@@ -250,6 +356,7 @@
         }
         previousPlayerSkipped = false;
       } else {
+        // It's a NOOP move
         if (previousPlayerSkipped) {
           done = true;
         }
@@ -258,12 +365,11 @@
       if (board.flat().every(cell => cell !== EMPTY)) {
         done = true;
       }
-      // Switch turn: agent is Black, human is White.
       currentPlayer = -currentPlayer;
       return done;
     }
 
-    // Human click handler. Only allow clicks when it's the human's turn (White).
+    // Human move
     async function onCellClick(event) {
       if (gameOver || currentPlayer !== WHITE) return;
       const row = parseInt(event.currentTarget.dataset.row);
@@ -284,36 +390,49 @@
       setTimeout(agentMove, 500);
     }
 
-    // Agent move: selects (among valid moves for Black) the one with the highest logit.
+    // AI move
     async function agentMove() {
       if (gameOver) return;
+      // Flatten board to 1D
       let inputArray = [];
       for (let i = 0; i < BOARD_SIZE; i++) {
         for (let j = 0; j < BOARD_SIZE; j++) {
           inputArray.push(board[i][j]);
         }
       }
-      // Input is a 1x64 tensor.
       const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
-      let feeds = {};
-      const inputName = modelSession.inputNames[0];
-      feeds[inputName] = tensor;
+      const feeds = {};
+      feeds[modelSession.inputNames[0]] = tensor;
+
       try {
         const results = await modelSession.run(feeds);
         const outputName = modelSession.outputNames[0];
         const logits = results[outputName].data;
         const legal = getLegalActions(BLACK);
+
+        // Softmax among legal moves
+        let sumExp = 0;
+        let exps = [];
+        for (let move of legal) {
+          let index = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
+            ? 64 : move.row * BOARD_SIZE + move.col;
+          const valExp = Math.exp(logits[index]);
+          exps.push({ index, valExp });
+          sumExp += valExp;
+        }
+        agentProbs.fill(0);
+        for (let item of exps) {
+          agentProbs[item.index] = item.valExp / sumExp;
+        }
+
+        // Pick best move (highest logit)
         let bestMove = legal[0];
         let bestLogit = -Infinity;
         for (let move of legal) {
-          let index;
-          if (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col) {
-            index = 64;
-          } else {
-            index = move.row * 8 + move.col;
-          }
-          if (logits[index] > bestLogit) {
-            bestLogit = logits[index];
+          let idx = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
+            ? 64 : move.row * BOARD_SIZE + move.col;
+          if (logits[idx] > bestLogit) {
+            bestLogit = logits[idx];
             bestMove = move;
           }
         }
@@ -331,7 +450,7 @@
       }
     }
 
-    // Auto-skip human turn if no legal moves exist for White.
+    // Auto-skip if White has no legal moves
     function checkHumanAutoSkip() {
       const legal = getLegalActions(WHITE);
       if (legal.length === 1 && legal[0].row === NOOP_ACTION.row && legal[0].col === NOOP_ACTION.col) {
@@ -349,7 +468,7 @@
       }
     }
 
-    // End-of-game status.
+    // End-of-game status
     function endGame() {
       gameOver = true;
       let blackCount = 0, whiteCount = 0;
@@ -370,15 +489,14 @@
       updateStatus(message);
     }
 
-    // Reset the game.
+    // Reset + start agent's move
     function resetGame() {
       initBoard();
       renderBoard();
-      // Since agent is Black and goes first, immediately trigger the agent move.
       setTimeout(agentMove, 500);
     }
 
-    // Load the ONNX model (ensure agent.onnx is in the same directory).
+    // Load ONNX model
     async function loadModel() {
       try {
         modelSession = await ort.InferenceSession.create('./agent.onnx');
@@ -389,11 +507,18 @@
       }
     }
 
+    // On load
     window.onload = async function() {
       await loadModel();
       resetGame();
+
       document.getElementById('hintsSwitch').addEventListener('change', function(event) {
         hintsEnabled = event.target.checked;
+        renderBoard();
+      });
+
+      document.getElementById('agentBrainSwitch').addEventListener('change', function(event) {
+        agentBrainEnabled = event.target.checked;
         renderBoard();
       });
     };
