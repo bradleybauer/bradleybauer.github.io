@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Othello vs ONNX Agent</title>
+  <!-- Using Bootstrap for a modern, responsive layout -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <style>
+    body {
+      background: #f8f9fa;
+    }
+    .board {
+      display: grid;
+      grid-template-columns: repeat(8, 50px);
+      grid-template-rows: repeat(8, 50px);
+      gap: 2px;
+      margin: 20px auto;
+      max-width: 420px;
+    }
+    .cell {
+      width: 50px;
+      height: 50px;
+      background: green;
+      border: 1px solid #333;
+      position: relative;
+      cursor: pointer;
+    }
+    .cell.disabled {
+      cursor: not-allowed;
+    }
+    .piece {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      position: absolute;
+      top: 5px;
+      left: 5px;
+    }
+    .piece.black {
+      background: black;
+    }
+    .piece.white {
+      background: white;
+      border: 1px solid #333;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1 class="text-center my-4">Othello vs ONNX Agent</h1>
+    <div class="text-center mb-3">
+      <button id="resetBtn" class="btn btn-primary">Reset Game</button>
+    </div>
+    <div id="board" class="board"></div>
+    <div id="status" class="text-center mt-3"></div>
+  </div>
+
+  <!-- ONNX Runtime Web -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <script>
+    // Constants and game state.
+    const BOARD_SIZE = 8;
+    const EMPTY = 0, BLACK = 1, WHITE = -1;
+    const NOOP_ACTION = { row: 8, col: 0 }; // represents a no–move action
+    let board = [];
+    let currentPlayer = BLACK; // human will play as Black, agent as White
+    let previousPlayerSkipped = false;
+    let gameOver = false;
+    let modelSession = null;
+
+    // Initialize board with standard starting positions.
+    function initBoard() {
+      board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
+      const mid = BOARD_SIZE / 2;
+      board[mid - 1][mid - 1] = WHITE;
+      board[mid][mid] = WHITE;
+      board[mid - 1][mid] = BLACK;
+      board[mid][mid - 1] = BLACK;
+      currentPlayer = BLACK;
+      previousPlayerSkipped = false;
+      gameOver = false;
+      updateStatus("Your turn (Black).");
+    }
+
+    // Render the board UI.
+    function renderBoard() {
+      const boardDiv = document.getElementById('board');
+      boardDiv.innerHTML = '';
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        for (let j = 0; j < BOARD_SIZE; j++) {
+          const cellDiv = document.createElement('div');
+          cellDiv.className = 'cell';
+          cellDiv.dataset.row = i;
+          cellDiv.dataset.col = j;
+          cellDiv.addEventListener('click', onCellClick);
+          // If there is a piece in the cell, display it.
+          if (board[i][j] === BLACK || board[i][j] === WHITE) {
+            const pieceDiv = document.createElement('div');
+            pieceDiv.className = 'piece ' + (board[i][j] === BLACK ? 'black' : 'white');
+            cellDiv.appendChild(pieceDiv);
+          }
+          boardDiv.appendChild(cellDiv);
+        }
+      }
+    }
+
+    // Update the status text.
+    function updateStatus(message) {
+      document.getElementById('status').innerText = message;
+    }
+
+    // Compute legal actions for a given player.
+    function getLegalActions(forPlayer) {
+      let legalActions = [];
+      let openPositions = [];
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        for (let j = 0; j < BOARD_SIZE; j++) {
+          if (board[i][j] === EMPTY) {
+            let available = false;
+            for (let di = -1; di <= 1; di++) {
+              for (let dj = -1; dj <= 1; dj++) {
+                if (di === 0 && dj === 0) continue;
+                let ni = i + di, nj = j + dj;
+                if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE) {
+                  if (board[ni][nj] === -forPlayer) {
+                    available = true;
+                    break;
+                  }
+                }
+              }
+              if (available) break;
+            }
+            if (available) openPositions.push({ row: i, col: j });
+          }
+        }
+      }
+      // Validate each open position using Othello flipping rules.
+      openPositions.forEach(pos => {
+        let valid = false;
+        for (let di = -1; di <= 1; di++) {
+          for (let dj = -1; dj <= 1; dj++) {
+            if (di === 0 && dj === 0) continue;
+            let k = 1;
+            let hasEnemy = false;
+            while (true) {
+              let ip = pos.row + k * di, jp = pos.col + k * dj;
+              if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
+              if (board[ip][jp] === EMPTY) break;
+              if (board[ip][jp] === -forPlayer) {
+                hasEnemy = true;
+              }
+              if (hasEnemy && board[ip][jp] === forPlayer) {
+                valid = true;
+                break;
+              }
+              k++;
+            }
+            if (valid) break;
+          }
+          if (valid) break;
+        }
+        if (valid) legalActions.push({ row: pos.row, col: pos.col });
+      });
+      if (legalActions.length === 0) legalActions.push(NOOP_ACTION);
+      return legalActions;
+    }
+
+    // Apply a move to the board.
+    // This function mimics the Python simulation's "step" method.
+    function applyMove(action) {
+      let done = false;
+      if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
+        const i = action.row, j = action.col;
+        board[i][j] = currentPlayer;
+        // For each of the eight directions, flip opponent pieces.
+        for (let di = -1; di <= 1; di++) {
+          for (let dj = -1; dj <= 1; dj++) {
+            if (di === 0 && dj === 0) continue;
+            let k = 1;
+            let positionsToFlip = [];
+            while (true) {
+              let ip = i + k * di, jp = j + k * dj;
+              if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
+              if (board[ip][jp] === EMPTY) break;
+              if (board[ip][jp] === -currentPlayer) {
+                positionsToFlip.push({ row: ip, col: jp });
+              }
+              if (board[ip][jp] === currentPlayer) {
+                if (positionsToFlip.length > 0) {
+                  positionsToFlip.forEach(pos => {
+                    board[pos.row][pos.col] = currentPlayer;
+                  });
+                }
+                break;
+              }
+              k++;
+            }
+          }
+        }
+        previousPlayerSkipped = false;
+      } else {
+        if (previousPlayerSkipped) {
+          done = true;
+        }
+        previousPlayerSkipped = true;
+      }
+      // Check if the board is full.
+      let full = board.flat().every(cell => cell !== EMPTY);
+      if (full) done = true;
+      currentPlayer = -currentPlayer;
+      return done;
+    }
+
+    // Handler for human cell clicks.
+    async function onCellClick(event) {
+      if (gameOver || currentPlayer !== BLACK) return;
+      const row = parseInt(event.currentTarget.dataset.row);
+      const col = parseInt(event.currentTarget.dataset.col);
+      const legal = getLegalActions(BLACK);
+      let valid = legal.some(a => a.row === row && a.col === col);
+      if (!valid) {
+        updateStatus("Illegal move. Try again.");
+        return;
+      }
+      let gameEnded = applyMove({ row, col });
+      renderBoard();
+      if (gameEnded) {
+        endGame();
+        return;
+      }
+      updateStatus("Agent's turn (White).");
+      // Let the agent move after a brief delay.
+      setTimeout(agentMove, 500);
+    }
+
+    // Agent makes its move using the ONNX model.
+    async function agentMove() {
+      if (gameOver) return;
+      // Prepare the 64-dimensional flattened board state.
+      let inputArray = [];
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        for (let j = 0; j < BOARD_SIZE; j++) {
+          inputArray.push(board[i][j]);
+        }
+      }
+      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [1, 64]);
+      let feeds = {};
+      // Use the model’s first input.
+      const inputName = modelSession.inputNames[0];
+      feeds[inputName] = tensor;
+      try {
+        const results = await modelSession.run(feeds);
+        // Assume the model’s output is a 65-dimensional logits vector.
+        const outputName = modelSession.outputNames[0];
+        const logits = results[outputName].data;
+        let maxIndex = 0;
+        let maxVal = logits[0];
+        for (let i = 1; i < logits.length; i++) {
+          if (logits[i] > maxVal) {
+            maxVal = logits[i];
+            maxIndex = i;
+          }
+        }
+        let action;
+        if (maxIndex === 64) {
+          action = NOOP_ACTION;
+        } else {
+          action = { row: Math.floor(maxIndex / 8), col: maxIndex % 8 };
+        }
+        // Make sure the agent’s move is legal; otherwise pick the first legal move.
+        const legal = getLegalActions(WHITE);
+        if (!legal.some(a => a.row === action.row && a.col === action.col)) {
+          action = legal[0];
+        }
+        let gameEnded = applyMove(action);
+        renderBoard();
+        if (gameEnded) {
+          endGame();
+          return;
+        }
+        updateStatus("Your turn (Black).");
+      } catch (err) {
+        console.error(err);
+        updateStatus("Error in agent move.");
+      }
+    }
+
+    // Display end-of-game message with scores.
+    function endGame() {
+      gameOver = true;
+      let blackCount = 0, whiteCount = 0;
+      board.forEach(row => {
+        row.forEach(cell => {
+          if (cell === BLACK) blackCount++;
+          if (cell === WHITE) whiteCount++;
+        });
+      });
+      let message = `Game over. Black: ${blackCount}, White: ${whiteCount}. `;
+      if (blackCount > whiteCount) {
+        message += "You win!";
+      } else if (whiteCount > blackCount) {
+        message += "Agent wins!";
+      } else {
+        message += "It's a draw!";
+      }
+      updateStatus(message);
+    }
+
+    // Reset the game.
+    function resetGame() {
+      initBoard();
+      renderBoard();
+    }
+
+    // Load the ONNX model (make sure agent.onnx is in the same directory).
+    async function loadModel() {
+      try {
+        modelSession = await ort.InferenceSession.create('./agent.onnx');
+        console.log("Model loaded.");
+      } catch (err) {
+        console.error("Failed to load model:", err);
+        updateStatus("Failed to load ONNX model.");
+      }
+    }
+
+    // On page load, load the model and initialize the game.
+    window.onload = async function() {
+      await loadModel();
+      resetGame();
+    };
+
+    document.getElementById('resetBtn').addEventListener('click', resetGame);
+  </script>
+</body>
+</html>
