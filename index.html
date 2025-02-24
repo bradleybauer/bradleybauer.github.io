@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Othello AI (Policy + Value Visualization)</title>
+  <title>Othello AI (Pastel Diagonal + Flip Pop + Mobile Responsive)</title>
 
   <!-- Bootstrap for layout -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
@@ -10,61 +10,77 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    body {
-      background: #f0f2f5;
-      color: #333;
+    /***********************************************************************
+     * Non–tiling diagonal background
+     ***********************************************************************/
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
       font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      color: #444;
     }
+    body {
+      background: linear-gradient(
+        135deg,
+        #FFF9F2 40%,
+        #FFE8D6 40%
+      ) no-repeat center center fixed;
+      background-size: cover;
+    }
+
     .container {
       max-width: 800px;
       margin: 0 auto;
-      padding-top: 20px;
-    }
-    h1, .text-center {
-      color: #333;
+      padding-top: 30px;
     }
 
-    /*
-      Board is a fixed 430px wide to precisely fit:
-      - 8 columns x 50px = 400px
-      - 7 gaps x 2px = 14px
-      - 2*(8px padding) = 16px
-      => 400+14+16 = 430
-    */
+    h1, .text-center {
+      color: #444;
+    }
+
+    /***********************************************************************
+     * Board styling (desktop): 
+     * - Fixed 430px to fit 8 columns × 50px + gaps + padding
+     * - We'll override this in a mobile media query
+     ***********************************************************************/
     .board {
-      width: 430px;
+      max-width: 430px;
       display: grid;
       grid-template-columns: repeat(8, 50px);
       grid-template-rows: repeat(8, 50px);
       gap: 2px;
       padding: 8px;
-      background: #4caf50;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+      background: #a5dee5; /* pastel teal */
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       border-radius: 8px;
       margin: 0 auto;
       position: relative;
     }
 
     .cell {
-      width: 50px;
-      height: 50px;
-      background: #66bb6a;
+      background: #bae8e8; /* aqua */
       border-radius: 4px;
       position: relative;
       cursor: pointer;
-      transition: background 0.1s ease;
+      transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
     }
     .cell:hover {
-      background: #5da56d;
-    }
-
-    /* Inset highlight for legal moves */
-    .cell.legal {
-      box-shadow: inset 0 0 0 3px #ffeb3b;
+      transform: scale(1.05);
+      background: #98c8c8;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
       z-index: 2;
     }
 
-    /* Pieces */
+    .cell.legal {
+      box-shadow:
+        inset 0 0 0 3px #f19cbb,
+        0 4px 8px rgba(0,0,0,0.1);
+      z-index: 3;
+    }
+
+    /* Pieces remain black/white for clarity. */
     .piece {
       width: 40px;
       height: 40px;
@@ -72,25 +88,24 @@
       position: absolute;
       top: 5px;
       left: 5px;
-      z-index: 2;
+      z-index: 4;
     }
     .piece.black {
-      background: #2b2b2b;
+      background: #3e3e3e;
     }
     .piece.white {
       background: #f9f9f9;
       border: 1px solid #ddd;
     }
-    /* Ghost piece for hover preview */
+    /* Ghost piece for hover preview. */
     .piece.ghost {
       opacity: 0.5;
     }
 
-    /* Heatmap overlay for AI's policy distribution */
+    /* Policy heatmap overlay */
     .heatmap {
       position: absolute;
-      top: 0;
-      left: 0;
+      top: 0; left: 0;
       width: 100%;
       height: 100%;
       z-index: 1;
@@ -99,13 +114,15 @@
       border-radius: 4px;
     }
 
-    /* Preview-flipped pieces get a ring highlight */
+    /* Flipped highlight: pastel pinkish glow */
     .preview-flip {
-      box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.7);
-      z-index: 3;
+      box-shadow: 0 0 0 3px rgba(241, 156, 187, 0.85);
+      z-index: 5;
     }
 
-    /* Score bar can match board width (430px) */
+    /***********************************************************************
+     * Score bar
+     ***********************************************************************/
     .score-bar-container {
       max-width: 430px;
       margin: 15px auto;
@@ -121,33 +138,98 @@
       letter-spacing: 0.5px;
     }
     .progress-bar.bg-dark {
-      background-color: #444 !important;
+      background-color: #F8C471 !important; /* pastel peach */
     }
     .progress-bar.bg-light {
-      background-color: #eee !important;
+      background-color: #FFE8D6 !important; /* light peach */
       color: #333 !important;
     }
 
     #status, #remainingStones {
       margin-top: 8px;
-      color: #333;
     }
 
-    /* Style for the "Board Value" text display. */
-    #valueDisplay {
-      font-size: 1.2em;
-      font-weight: bold;
-      margin-left: 8px;
-    }
-
-    /* Make the chart container a bit bigger. */
+    /***********************************************************************
+     * Minimal chart container for AI's score
+     ***********************************************************************/
     #valueChartContainer {
       max-width: 600px;
       margin: 20px auto;
+      padding: 10px;
+      border: 2px solid #aaa;
+      border-radius: 8px;
+      background: #fffefa;
     }
     #valueChart {
       width: 600px;
       height: 300px;
+    }
+
+    /***********************************************************************
+     * Updated toggle switches + pastel peach primary button
+     ***********************************************************************/
+    .form-switch .form-check-input:checked {
+      background-color: #f19cbb !important; /* pastel pink */
+      border-color: #f19cbb !important;
+    }
+    .form-switch .form-check-input:focus {
+      box-shadow: 0 0 0 0.2rem rgba(241,156,187,0.25) !important;
+    }
+    .btn-primary {
+      background-color: #F8C471;
+      border-color: #F8C471;
+      color: #fff;
+    }
+    .btn-primary:hover,
+    .btn-primary:focus {
+      background-color: #F6B05F;
+      border-color: #F6B05F;
+    }
+
+    /***********************************************************************
+     * MOBILE RESPONSIVENESS:
+     * For screens <= 640px wide, make the board fluid:
+     * - width: 90vw
+     * - auto-fitting columns/rows
+     * - each cell is a fraction of the total board width
+     * This keeps squares perfect while removing the 430px fixed width.
+     ***********************************************************************/
+    @media (max-width: 640px) {
+      /* Let the board fill 90% of the viewport width, remove fixed dims. */
+      .board {
+        max-width: none;      /* override 430px */
+        width: 90vw;          /* fluid width */
+        grid-template-columns: repeat(8, 1fr); /* 8 columns, each 1 fraction */
+        grid-template-rows: repeat(8, 1fr);
+        gap: 1px;
+        padding: 4px;
+        margin-bottom: 10px;
+      }
+      /* Cells become perfect squares via "aspect-ratio" (supported in modern browsers) */
+      .cell {
+        width: auto;
+        height: auto;
+        aspect-ratio: 1 / 1;
+      }
+
+      /* Score bar + chart also narrower */
+      .score-bar-container {
+        max-width: 90vw;
+      }
+      #valueChartContainer {
+        max-width: 90vw;
+        margin-top: 10px;
+        padding: 8px;
+      }
+      #valueChart {
+        width: 100%;
+        height: auto; /* let it scale with width */
+      }
+
+      /* Slightly reduce top margin around status text */
+      #status, #remainingStones {
+        margin-top: 5px;
+      }
     }
   </style>
 </head>
@@ -157,13 +239,11 @@
 
     <div class="d-flex justify-content-center mb-3">
       <button id="resetBtn" class="btn btn-primary me-3">Reset Game</button>
-
       <!-- Hints switch -->
       <div class="form-check form-switch align-self-center me-3">
         <input class="form-check-input" type="checkbox" id="hintsSwitch">
         <label class="form-check-label" for="hintsSwitch">Show Hints</label>
       </div>
-
       <!-- Policy Brain Visualization Switch -->
       <div class="form-check form-switch align-self-center">
         <input class="form-check-input" type="checkbox" id="agentBrainSwitch">
@@ -171,29 +251,27 @@
       </div>
     </div>
 
-    <!-- Score bar for black vs white disks on the board -->
+    <!-- Score bar -->
     <div class="score-bar-container">
       <div class="progress">
         <div 
-          id="blackScoreBar" 
-          class="progress-bar bg-dark" 
-          role="progressbar" 
-          style="width: 50%;" 
-          aria-valuenow="50" 
-          aria-valuemin="0" 
-          aria-valuemax="100"
-        >
+          id="blackScoreBar"
+          class="progress-bar bg-dark"
+          role="progressbar"
+          style="width: 50%;"
+          aria-valuenow="50"
+          aria-valuemin="0"
+          aria-valuemax="100">
           Black: 0
         </div>
         <div 
-          id="whiteScoreBar" 
-          class="progress-bar bg-light text-dark" 
-          role="progressbar" 
-          style="width: 50%;" 
-          aria-valuenow="50" 
-          aria-valuemin="0" 
-          aria-valuemax="100"
-        >
+          id="whiteScoreBar"
+          class="progress-bar bg-light text-dark"
+          role="progressbar"
+          style="width: 50%;"
+          aria-valuenow="50"
+          aria-valuemin="0"
+          aria-valuemax="100">
           White: 0
         </div>
       </div>
@@ -205,18 +283,16 @@
     <div id="status" class="text-center"></div>
     <div id="remainingStones" class="text-center"></div>
 
-    <!-- Board Value display + line chart -->
-    <div class="text-center mt-4">
-      <span>Board Value:</span>
-      <span id="valueDisplay">(waiting)</span>
-    </div>
+    <!-- Minimal chart for AI's Score -->
     <div id="valueChartContainer">
       <canvas id="valueChart"></canvas>
     </div>
   </div>
 
-  <!-- ONNX Runtime Web for loading models -->
+  <!-- ONNX Runtime Web + Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <script>
     const BOARD_SIZE = 8;
     const EMPTY = 0, BLACK = 1, WHITE = -1;
@@ -233,59 +309,47 @@
     let valueSession = null;
 
     let hintsEnabled = false;
-    let agentBrainEnabled = false; 
+    let agentBrainEnabled = false;
     let agentProbs = new Array(65).fill(0);
 
     let previewElements = [];
 
-    // For the value chart + animation
-    let valueChart = null;   // Chart.js instance
-    let moveCount = 0;       // increments each time a move is made
-    let lastValue = null;    // for animating the value label
+    // For the line chart
+    let valueChart = null;
+    let moveCount = 0;
 
     window.onload = async function() {
       await loadModels();
-      setupValueChart();  // init the line chart
+      setupValueChart();
+      await resetGame();
 
-      resetGame();
-
-      document.getElementById('hintsSwitch').addEventListener('change', function(event) {
-        hintsEnabled = event.target.checked;
+      document.getElementById('hintsSwitch').addEventListener('change', e => {
+        hintsEnabled = e.target.checked;
         renderBoard();
       });
 
-      document.getElementById('agentBrainSwitch').addEventListener('change', function(event) {
-        agentBrainEnabled = event.target.checked;
+      document.getElementById('agentBrainSwitch').addEventListener('change', e => {
+        agentBrainEnabled = e.target.checked;
         renderBoard();
       });
 
-      document.getElementById('resetBtn').addEventListener('click', resetGame);
+      document.getElementById('resetBtn').addEventListener('click', async () => {
+        await resetGame();
+      });
     };
 
-    /********************
-     *  MODEL LOADING   *
-     ********************/
     async function loadModels() {
       try {
-        // Load policy model
         policySession = await ort.InferenceSession.create('./agent.onnx');
         console.log("Policy model loaded.");
-        console.log(policySession.inputNames[0])
-
-        // Load separate value model 
-        // (If you have a single model with 2 outputs, adapt accordingly.)
         valueSession = await ort.InferenceSession.create('./value_model.onnx');
         console.log("Value model loaded.");
-        console.log(valueSession.inputNames[0])
       } catch (err) {
         console.error("Failed to load model:", err);
         updateStatus("Failed to load ONNX models.");
       }
     }
 
-    /******************************
-     * SETUP VALUE CHART (Chart.js)
-     ******************************/
     function setupValueChart() {
       const ctx = document.getElementById('valueChart').getContext('2d');
       valueChart = new Chart(ctx, {
@@ -293,25 +357,23 @@
         data: {
           labels: [],
           datasets: [{
-            label: 'Board Value',
+            label: '',
             data: [],
             borderColor: 'rgba(75,192,192,1)',
             backgroundColor: 'rgba(75,192,192,0.2)',
             fill: true,
             tension: 0.1,
-            pointRadius: 3,
+            pointRadius: 2,
+            pointHoverRadius: 3
           }]
         },
         options: {
+          plugins: {
+            legend: { display: false }
+          },
           scales: {
-            x: {
-              title: { display: true, text: 'Move #' }
-            },
-            y: {
-              title: { display: true, text: 'Value' },
-              suggestedMin: 0, // if your value is 0..1
-              suggestedMax: 1
-            }
+            x: { display: false },
+            y: { display: false, min: -1, max: 1 }
           },
           responsive: true,
           maintainAspectRatio: false
@@ -319,9 +381,6 @@
       });
     }
 
-    /*******************************
-     *  BOARD & GAME STATE LOGIC   *
-     *******************************/
     function initBoard() {
       board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
       const mid = Math.floor(BOARD_SIZE / 2);
@@ -337,17 +396,24 @@
       gameOver = false;
 
       agentProbs.fill(0);
-      moveCount = 0;      // reset move count
-      lastValue = null;   // reset lastValue
-      // clear chart data
+      moveCount = 0;
+
+      // Clear chart
       if (valueChart) {
         valueChart.data.labels = [];
         valueChart.data.datasets[0].data = [];
         valueChart.update();
       }
 
-      document.getElementById('valueDisplay').textContent = '(waiting)';
       updateStatus("Agent's turn (Black).");
+    }
+
+    async function resetGame() {
+      initBoard();
+      renderBoard();
+      // Evaluate initial board => so the chart shows the start state
+      await updateValue();
+      setTimeout(agentMove, 500);
     }
 
     function renderBoard() {
@@ -358,7 +424,7 @@
       let legalMoves = [];
       if (hintsEnabled && currentPlayer === WHITE) {
         legalMoves = getLegalActions(WHITE).filter(
-          move => !(move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
+          m => !(m.row === NOOP_ACTION.row && m.col === NOOP_ACTION.col)
         );
       }
 
@@ -369,7 +435,7 @@
           cellDiv.dataset.row = i;
           cellDiv.dataset.col = j;
 
-          if (legalMoves.some(move => move.row === i && move.col === j)) {
+          if (legalMoves.some(m => m.row === i && m.col === j)) {
             cellDiv.classList.add('legal');
             cellDiv.addEventListener('mouseenter', () => previewMove(i, j));
             cellDiv.addEventListener('mouseleave', clearPreview);
@@ -383,7 +449,6 @@
             cellDiv.appendChild(pieceDiv);
           }
 
-          // AI Brain heatmap
           if (agentBrainEnabled) {
             const idx = i * BOARD_SIZE + j;
             const prob = agentProbs[idx];
@@ -394,7 +459,6 @@
               cellDiv.appendChild(heatmapDiv);
             }
           }
-
           boardDiv.appendChild(cellDiv);
         }
       }
@@ -402,17 +466,8 @@
       updateRemainingStonesMessage();
     }
 
-    function resetGame() {
-      initBoard();
-      renderBoard();
-      setTimeout(agentMove, 500);
-    }
-
-    /******************************
-     *  PREVIEW FLIPS ON HOVER
-     ******************************/
     function previewMove(row, col) {
-      if (currentPlayer !== WHITE || gameOver) return;
+      if (gameOver || currentPlayer !== WHITE) return;
       const flips = getFlipsIfMove(row, col, WHITE);
 
       const cellSelector = `[data-row="${row}"][data-col="${col}"]`;
@@ -425,8 +480,8 @@
       previewElements.push(ghostPiece);
 
       flips.forEach(pos => {
-        const flipCellSelector = `[data-row="${pos.row}"][data-col="${pos.col}"] .piece`;
-        const piece = document.querySelector(flipCellSelector);
+        const flipSelector = `[data-row="${pos.row}"][data-col="${pos.col}"] .piece`;
+        const piece = document.querySelector(flipSelector);
         if (piece) {
           piece.classList.add('preview-flip');
           previewElements.push(piece);
@@ -447,21 +502,20 @@
     function getFlipsIfMove(row, col, player) {
       if (board[row][col] !== EMPTY) return [];
       let flips = [];
-      for (let di = -1; di <= 1; di++) {
-        for (let dj = -1; dj <= 1; dj++) {
-          if (di === 0 && dj === 0) continue;
-          let k = 1;
-          let positionsToFlip = [];
-          while (true) {
-            let ip = row + k*di;
-            let jp = col + k*dj;
-            if (ip<0 || ip>=BOARD_SIZE || jp<0 || jp>=BOARD_SIZE) break;
-            if (board[ip][jp] === EMPTY) break;
-            if (board[ip][jp] === -player) {
-              positionsToFlip.push({ row: ip, col: jp });
+      for (let di=-1; di<=1; di++){
+        for(let dj=-1; dj<=1; dj++){
+          if(di===0 && dj===0) continue;
+          let k=1;
+          let positionsToFlip=[];
+          while(true){
+            let ip=row+k*di, jp=col+k*dj;
+            if(ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE) break;
+            if(board[ip][jp]===EMPTY) break;
+            if(board[ip][jp]===-player){
+              positionsToFlip.push({row:ip,col:jp});
             }
-            if (board[ip][jp] === player) {
-              if (positionsToFlip.length>0) {
+            if(board[ip][jp]===player){
+              if(positionsToFlip.length>0){
                 flips.push(...positionsToFlip);
               }
               break;
@@ -473,210 +527,158 @@
       return flips;
     }
 
-    /*************************************
-     *  POLICY LOGIC + AI AGENT MOVE
-     *************************************/
     async function agentMove() {
       if (gameOver) return;
-
-      let inputArray = [];
-      for (let i = 0; i < BOARD_SIZE; i++) {
-        for (let j = 0; j < BOARD_SIZE; j++) {
+      let inputArray=[];
+      for(let i=0; i<BOARD_SIZE; i++){
+        for(let j=0; j<BOARD_SIZE; j++){
           inputArray.push(board[i][j]);
         }
       }
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
-      const feeds = {};
-      feeds[policySession.inputNames[0]] = tensor;
+      const tensor=new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
+      const feeds={};
+      feeds[policySession.inputNames[0]]=tensor;
 
       try {
-        const results = await policySession.run(feeds);
-        const outputName = policySession.outputNames[0];
-        const logits = results[outputName].data;
+        const results=await policySession.run(feeds);
+        const outputName=policySession.outputNames[0];
+        const logits=results[outputName].data;
 
-        const legal = getLegalActions(BLACK);
-        let sumExp = 0;
-        let exps = [];
-        for (let move of legal) {
-          let index = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
-            ? 64
-            : move.row*BOARD_SIZE + move.col;
-          const valExp = Math.exp(logits[index]);
-          exps.push({ index, valExp });
-          sumExp += valExp;
+        const legal=getLegalActions(BLACK);
+        let sumExp=0;
+        let exps=[];
+        for(let move of legal){
+          let idx=(move.row===NOOP_ACTION.row&&move.col===NOOP_ACTION.col)
+            ?64
+            :move.row*BOARD_SIZE+move.col;
+          const valExp=Math.exp(logits[idx]);
+          exps.push({index:idx,valExp});
+          sumExp+=valExp;
         }
         agentProbs.fill(0);
-        for (let item of exps) {
-          agentProbs[item.index] = item.valExp/sumExp;
+        for(let item of exps){
+          agentProbs[item.index]=item.valExp/sumExp;
         }
 
-        // pick best move by highest logit
-        let bestMove = legal[0];
-        let bestLogit = -Infinity;
-        for (let move of legal) {
-          let idx = (move.row===NOOP_ACTION.row && move.col===NOOP_ACTION.col)
-            ? 64
-            : move.row*BOARD_SIZE + move.col;
-          if (logits[idx] > bestLogit) {
-            bestLogit = logits[idx];
-            bestMove = move;
+        let bestMove=legal[0];
+        let bestLogit=-Infinity;
+        for(let move of legal){
+          let idx=(move.row===NOOP_ACTION.row&&move.col===NOOP_ACTION.col)
+            ?64
+            :move.row*BOARD_SIZE+move.col;
+          if(logits[idx]>bestLogit){
+            bestLogit=logits[idx];
+            bestMove=move;
           }
         }
 
-        let gameEnded = applyMove(bestMove);
+        let done=applyMove(bestMove);
         renderBoard();
-        if (!gameEnded) {
-          // After the AI move, update the board value
+        if(!done){
           await updateValue();
           updateStatus("Your turn (White).");
           checkHumanAutoSkip();
-        } else {
+        }else{
           endGame();
         }
-      } catch (err) {
+      } catch(err){
         console.error(err);
         updateStatus("Error in agent move.");
       }
     }
 
-    /********************************************
-     *  VALUE MODEL: Update Value Over Time
-     ********************************************/
     async function updateValue() {
-      // Flatten board
-      let inputArray = [];
-      for (let i = 0; i < BOARD_SIZE; i++) {
-        for (let j = 0; j < BOARD_SIZE; j++) {
+      let inputArray=[];
+      for(let i=0; i<BOARD_SIZE; i++){
+        for(let j=0; j<BOARD_SIZE; j++){
           inputArray.push(board[i][j]);
         }
       }
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
-      const feeds = {};
-      feeds[valueSession.inputNames[0]] = tensor;
+      const tensor=new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
+      const feeds={};
+      feeds[valueSession.inputNames[0]]=tensor;
 
       try {
-        const results = await valueSession.run(feeds);
-        const outputName = valueSession.outputNames[0];
-        const val = results[outputName].data[0];
+        const results=await valueSession.run(feeds);
+        const outputName=valueSession.outputNames[0];
+        const val=results[outputName].data[0];
 
-        // increment move count
         moveCount++;
-        // add data to the chart
-        updateValueChart(val);
-        // animate text
-        animateValueShift(val);
-
-      } catch (err) {
+        if(valueChart){
+          valueChart.data.labels.push(moveCount);
+          valueChart.data.datasets[0].data.push(val);
+          valueChart.update();
+        }
+      }catch(err){
         console.error("Value model error:", err);
       }
     }
 
-    // push new data point to the chart
-    function updateValueChart(val) {
-      if (!valueChart) return;
-      valueChart.data.labels.push(moveCount);
-      valueChart.data.datasets[0].data.push(val);
-      valueChart.update();
-    }
+    async function onCellClick(e){
+      if(gameOver||currentPlayer!==WHITE)return;
+      const row=parseInt(e.currentTarget.dataset.row);
+      const col=parseInt(e.currentTarget.dataset.col);
+      const legal=getLegalActions(WHITE);
+      let valid=legal.some(a=>a.row===row&&a.col===col);
 
-    // smoothly animate from lastValue -> newVal in the text display
-    function animateValueShift(newVal) {
-      const displaySpan = document.getElementById('valueDisplay');
-      if (lastValue === null) {
-        // first time
-        displaySpan.textContent = newVal.toFixed(3);
-        lastValue = newVal;
-        return;
-      }
-
-      const oldVal = lastValue;
-      let startTime = null;
-      const duration = 600; // ms
-
-      function tick(timestamp) {
-        if (!startTime) startTime = timestamp;
-        const progress = Math.min((timestamp - startTime)/duration, 1);
-        const currentVal = oldVal + (newVal - oldVal)*progress;
-        displaySpan.textContent = currentVal.toFixed(3);
-
-        if (progress<1) {
-          requestAnimationFrame(tick);
-        } else {
-          lastValue = newVal; // done
-        }
-      }
-      requestAnimationFrame(tick);
-    }
-
-    /*******************************
-     *  HUMAN MOVE + UTILITY
-     *******************************/
-    async function onCellClick(event) {
-      if (gameOver || currentPlayer!==WHITE) return;
-      const row = parseInt(event.currentTarget.dataset.row);
-      const col = parseInt(event.currentTarget.dataset.col);
-      const legal = getLegalActions(WHITE);
-      let valid = legal.some(a => a.row===row && a.col===col);
-
-      if (!valid) {
+      if(!valid){
         updateStatus("Illegal move. Try again.");
         return;
       }
-      let gameEnded = applyMove({ row, col });
+      let ended=applyMove({row,col});
       renderBoard();
-      if (!gameEnded) {
-        // after the human move, update the board value
+      if(!ended){
         await updateValue();
         updateStatus("Agent's turn (Black).");
-        setTimeout(agentMove, 500);
-      } else {
+        setTimeout(agentMove,500);
+      }else{
         endGame();
       }
     }
 
-    function checkHumanAutoSkip() {
-      const legal = getLegalActions(WHITE);
-      if (legal.length===1 && legal[0].row===NOOP_ACTION.row && legal[0].col===NOOP_ACTION.col) {
+    function checkHumanAutoSkip(){
+      const legal=getLegalActions(WHITE);
+      if(legal.length===1&&legal[0].row===NOOP_ACTION.row&&legal[0].col===NOOP_ACTION.col){
         updateStatus("No legal moves available. Skipping your turn...");
         setTimeout(()=>{
-          let gameEnded = applyMove(NOOP_ACTION);
+          let ended=applyMove(NOOP_ACTION);
           renderBoard();
-          if (!gameEnded) {
-            updateValue(); // update board value after skip
+          if(!ended){
+            updateValue();
             updateStatus("Agent's turn (Black).");
-            setTimeout(agentMove, 500);
-          } else {
+            setTimeout(agentMove,500);
+          }else{
             endGame();
           }
         },1000);
       }
     }
 
-    function applyMove(action) {
-      let done = false;
-      if (!(action.row===NOOP_ACTION.row && action.col===NOOP_ACTION.col)) {
-        if (currentPlayer===BLACK) blackStones--;
+    function applyMove(action){
+      let done=false;
+      if(!(action.row===NOOP_ACTION.row&&action.col===NOOP_ACTION.col)){
+        if(currentPlayer===BLACK) blackStones--;
         else whiteStones--;
 
-        const i = action.row, j = action.col;
-        board[i][j] = currentPlayer;
+        const i=action.row,j=action.col;
+        board[i][j]=currentPlayer;
 
-        for (let di=-1; di<=1; di++) {
-          for (let dj=-1; dj<=1; dj++) {
-            if (di===0 && dj===0) continue;
+        for(let di=-1; di<=1; di++){
+          for(let dj=-1; dj<=1; dj++){
+            if(di===0&&dj===0)continue;
             let k=1;
-            let positionsToFlip = [];
-            while(true) {
-              let ip=i + k*di, jp=j + k*dj;
-              if (ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE) break;
-              if (board[ip][jp]===EMPTY) break;
-              if (board[ip][jp]===-currentPlayer) {
-                positionsToFlip.push({ row: ip, col: jp });
+            let positionsToFlip=[];
+            while(true){
+              let ip=i+k*di,jp=j+k*dj;
+              if(ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE)break;
+              if(board[ip][jp]===EMPTY)break;
+              if(board[ip][jp]===-currentPlayer){
+                positionsToFlip.push({row:ip,col:jp});
               }
-              if (board[ip][jp]===currentPlayer) {
-                if (positionsToFlip.length>0) {
-                  positionsToFlip.forEach(pos => {
-                    board[pos.row][pos.col] = currentPlayer;
+              if(board[ip][jp]===currentPlayer){
+                if(positionsToFlip.length>0){
+                  positionsToFlip.forEach(pos=>{
+                    board[pos.row][pos.col]=currentPlayer;
                   });
                 }
                 break;
@@ -686,122 +688,122 @@
           }
         }
         previousPlayerSkipped=false;
-      } else {
-        if (previousPlayerSkipped) done=true;
+      }else{
+        if(previousPlayerSkipped)done=true;
         previousPlayerSkipped=true;
       }
-      if (board.flat().every(cell => cell!==EMPTY)) {
+      if(board.flat().every(cell=>cell!==EMPTY)){
         done=true;
       }
       currentPlayer=-currentPlayer;
       return done;
     }
 
-    function getLegalActions(forPlayer) {
+    function getLegalActions(forPlayer){
       let legalActions=[];
-      if (forPlayer===BLACK) {
-        if (blackStones<=0) {
+      if(forPlayer===BLACK){
+        if(blackStones<=0){
           legalActions.push(NOOP_ACTION);
           return legalActions;
         }
-      } else {
-        if (whiteStones<=0) {
+      }else{
+        if(whiteStones<=0){
           legalActions.push(NOOP_ACTION);
           return legalActions;
         }
       }
 
       let openPositions=[];
-      for (let i=0; i<BOARD_SIZE; i++) {
-        for (let j=0; j<BOARD_SIZE; j++) {
-          if (board[i][j]===EMPTY) {
+      for(let i=0;i<BOARD_SIZE;i++){
+        for(let j=0;j<BOARD_SIZE;j++){
+          if(board[i][j]===EMPTY){
             let available=false;
-            for (let di=-1; di<=1; di++) {
-              for (let dj=-1; dj<=1; dj++) {
-                if (di===0 && dj===0) continue;
-                let ni=i+di, nj=j+dj;
-                if (ni>=0 && ni<BOARD_SIZE && nj>=0 && nj<BOARD_SIZE) {
-                  if (board[ni][nj]===-forPlayer) {
+            for(let di=-1;di<=1;di++){
+              for(let dj=-1;dj<=1;dj++){
+                if(di===0&&dj===0)continue;
+                let ni=i+di,nj=j+dj;
+                if(ni>=0&&ni<BOARD_SIZE&&nj>=0&&nj<BOARD_SIZE){
+                  if(board[ni][nj]===-forPlayer){
                     available=true;
                     break;
                   }
                 }
               }
-              if (available) break;
+              if(available)break;
             }
-            if (available) openPositions.push({ row:i, col:j });
+            if(available)openPositions.push({row:i,col:j});
           }
         }
       }
 
       openPositions.forEach(pos=>{
         let valid=false;
-        for (let di=-1; di<=1; di++) {
-          for (let dj=-1; dj<=1; dj++) {
-            if (di===0 && dj===0) continue;
-            for (let k=1; k<BOARD_SIZE; k++) {
-              let ip=pos.row + k*di, jp=pos.col + k*dj;
-              if (ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE) break;
-              if (board[ip][jp]===EMPTY) break;
-              if (board[ip][jp]===-forPlayer) {
+        for(let di=-1;di<=1;di++){
+          for(let dj=-1;dj<=1;dj++){
+            if(di===0&&dj===0)continue;
+            for(let k=1;k<BOARD_SIZE;k++){
+              let ip=pos.row+k*di,jp=pos.col+k*dj;
+              if(ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE)break;
+              if(board[ip][jp]===EMPTY)break;
+              if(board[ip][jp]===-forPlayer){
                 // possible flips
-              } else if (board[ip][jp]===forPlayer && k>=2) {
+              }else if(board[ip][jp]===forPlayer&&k>=2){
                 valid=true;
                 break;
-              } else {
+              }else{
                 break;
               }
             }
-            if (valid) break;
+            if(valid)break;
           }
-          if (valid) legalActions.push({ row: pos.row, col: pos.col });
+          if(valid)legalActions.push({row:pos.row,col:pos.col});
         }
       });
 
-      if (legalActions.length===0) legalActions.push(NOOP_ACTION);
+      if(legalActions.length===0)legalActions.push(NOOP_ACTION);
       return [...new Set(legalActions.map(JSON.stringify))].map(JSON.parse);
     }
 
-    function endGame() {
+    function endGame(){
       gameOver=true;
-      let blackCount=0, whiteCount=0;
-      board.forEach(row=>{
-        row.forEach(cell=>{
-          if (cell===BLACK) blackCount++;
-          if (cell===WHITE) whiteCount++;
+      let blackCount=0,whiteCount=0;
+      board.forEach(r=>{
+        r.forEach(cell=>{
+          if(cell===BLACK)blackCount++;
+          if(cell===WHITE)whiteCount++;
         });
       });
-      let message=`Game over. Black: ${blackCount}, White: ${whiteCount}. `;
-      if (blackCount>whiteCount) {
-        message+="YOU LOSE!";
-      } else if (whiteCount>blackCount) {
-        message+="You win!";
-      } else {
-        message+="It's a draw!";
+      let msg=`Game over. Black: ${blackCount}, White: ${whiteCount}. `;
+      if(blackCount>whiteCount){
+        msg+="YOU LOSE!";
+      }else if(whiteCount>blackCount){
+        msg+="You win!";
+      }else{
+        msg+="It's a draw!";
       }
-      updateStatus(message);
+      updateStatus(msg);
     }
 
-    function updateRemainingStonesMessage() {
+    function updateRemainingStonesMessage(){
       const msgDiv=document.getElementById('remainingStones');
-      if (whiteStones<3) {
+      if(whiteStones<3){
         msgDiv.innerText=`You have ${whiteStones} pieces left.`;
-      } else {
+      }else{
         msgDiv.innerText='';
       }
     }
 
-    function updateScoreBar() {
-      let blackCount=0, whiteCount=0;
-      for (let i=0; i<BOARD_SIZE; i++) {
-        for (let j=0; j<BOARD_SIZE; j++) {
-          if (board[i][j]===BLACK) blackCount++;
-          else if (board[i][j]===WHITE) whiteCount++;
-        }
-      }
+    function updateScoreBar(){
+      let blackCount=0,whiteCount=0;
+      board.forEach(r=>{
+        r.forEach(cell=>{
+          if(cell===BLACK)blackCount++;
+          if(cell===WHITE)whiteCount++;
+        });
+      });
       const total=blackCount+whiteCount;
-      let blackPct=0, whitePct=0;
-      if (total>0) {
+      let blackPct=0,whitePct=0;
+      if(total>0){
         blackPct=(blackCount/total)*100;
         whitePct=(whiteCount/total)*100;
       }
@@ -809,22 +811,25 @@
       const blackBar=document.getElementById('blackScoreBar');
       blackBar.style.width=blackPct+'%';
       blackBar.textContent=`Black: ${blackCount}`;
-      blackBar.setAttribute('aria-valuenow', blackPct.toFixed(1));
+      blackBar.setAttribute('aria-valuenow',blackPct.toFixed(1));
 
       const whiteBar=document.getElementById('whiteScoreBar');
       whiteBar.style.width=whitePct+'%';
       whiteBar.textContent=`White: ${whiteCount}`;
-      whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
+      whiteBar.setAttribute('aria-valuenow',whitePct.toFixed(1));
     }
 
-    function updateStatus(message) {
-      document.getElementById('status').innerText=message;
+    function updateStatus(msg){
+      document.getElementById('status').innerText=msg;
     }
 
-    function getColorForProb(prob) {
-      // red-ish scale for policy heatmap
-      const startR=255, startG=229, startB=229;
-      const endR=255, endG=0, endB=0;
+    /*
+      getColorForProb(prob):
+      Red-ish scale for policy heatmap. Tweak if desired.
+    */
+    function getColorForProb(prob){
+      const startR=255,startG=229,startB=229;
+      const endR=255,endG=0,endB=0;
       const r=Math.round(startR+(endR-startR)*prob);
       const g=Math.round(startG+(endG-startG)*prob);
       const b=Math.round(startB+(endB-startB)*prob);
