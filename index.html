@@ -2,7 +2,6 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <!-- Ensure proper scaling on mobile -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Othello AI (Pastel Diagonal + Flip Pop + Mobile Responsive)</title>
 
@@ -12,7 +11,7 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    /* Universal box-sizing for easier responsive design */
+    /* Universal box-sizing for consistent padding/margins */
     * {
       box-sizing: border-box;
     }
@@ -27,7 +26,7 @@
       height: 100%;
       font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       color: #444;
-      overflow-x: hidden; /* Prevent horizontal scroll */
+      overflow-x: hidden;
     }
     body {
       background: linear-gradient(
@@ -50,8 +49,6 @@
 
     /***********************************************************************
      * Board styling (desktop)
-     * Fixed width of 430px to precisely fit:
-     * 8 columns × 50px = 400px, plus 7 gaps × 2px = 14px, plus 2×8px padding = 16px.
      ***********************************************************************/
     .board {
       max-width: 430px;
@@ -91,7 +88,7 @@
     }
 
     /***********************************************************************
-     * Piece styling (updated to be relative and centered)
+     * Piece styling (centered and relative)
      ***********************************************************************/
     .piece {
       width: 80%;
@@ -119,7 +116,7 @@
      ***********************************************************************/
     .heatmap {
       position: absolute;
-      top: 0;
+      top: 0; 
       left: 0;
       width: 100%;
       height: 100%;
@@ -130,7 +127,7 @@
     }
 
     /***********************************************************************
-     * Flipped highlight: pastel pinkish glow
+     * Flipped highlight
      ***********************************************************************/
     .preview-flip {
       box-shadow: 0 0 0 3px rgba(241, 156, 187, 0.85);
@@ -205,7 +202,7 @@
 
     /***********************************************************************
      * MOBILE RESPONSIVENESS:
-     * For screens <= 640px, adjust board and chart to fit nicely.
+     * Adjust board and chart for small screens.
      ***********************************************************************/
     @media (max-width: 640px) {
       .board {
@@ -213,8 +210,8 @@
         max-width: none;
         grid-template-columns: repeat(8, 1fr);
         grid-template-rows: repeat(8, 1fr);
-        gap: 2px;       /* Increased gap for clarity on small screens */
-        padding: 6px;   /* Slightly more padding */
+        gap: 4px;       /* Increased gap for a bit more padding between cells */
+        padding: 6px;
         margin-bottom: 10px;
       }
       .cell {
@@ -800,8 +797,8 @@
 
     function updateScoreBar() {
       let blackCount = 0, whiteCount = 0;
-      board.forEach(row => {
-        row.forEach(cell => {
+      board.forEach(r => {
+        r.forEach(cell => {
           if (cell === BLACK) blackCount++;
           else if (cell === WHITE) whiteCount++;
         });
