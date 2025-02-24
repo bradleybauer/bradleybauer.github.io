@@ -11,10 +11,8 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
-    /* Universal box-sizing for consistent padding/margins */
-    * {
-      box-sizing: border-box;
-    }
+    /* Universal box-sizing */
+    * { box-sizing: border-box; }
 
     /***********************************************************************
      * Non–tiling diagonal background
@@ -88,7 +86,7 @@
     }
 
     /***********************************************************************
-     * Piece styling (centered and relative)
+     * Piece styling (centered & relative)
      ***********************************************************************/
     .piece {
       width: 80%;
@@ -100,24 +98,16 @@
       transform: translate(-50%, -50%);
       z-index: 4;
     }
-    .piece.black {
-      background: #3e3e3e;
-    }
-    .piece.white {
-      background: #f9f9f9;
-      border: 1px solid #ddd;
-    }
-    .piece.ghost {
-      opacity: 0.5;
-    }
+    .piece.black { background: #3e3e3e; }
+    .piece.white { background: #f9f9f9; border: 1px solid #ddd; }
+    .piece.ghost { opacity: 0.5; }
 
     /***********************************************************************
      * Policy heatmap overlay
      ***********************************************************************/
     .heatmap {
       position: absolute;
-      top: 0; 
-      left: 0;
+      top: 0; left: 0;
       width: 100%;
       height: 100%;
       z-index: 1;
@@ -127,10 +117,10 @@
     }
 
     /***********************************************************************
-     * Flipped highlight
+     * Flipped highlight: pastel pinkish glow
      ***********************************************************************/
     .preview-flip {
-      box-shadow: 0 0 0 3px rgba(241, 156, 187, 0.85);
+      box-shadow: 0 0 0 3px rgba(241,156,187,0.85);
       z-index: 5;
     }
 
@@ -152,10 +142,10 @@
       letter-spacing: 0.5px;
     }
     .progress-bar.bg-dark {
-      background-color: #F8C471 !important; /* pastel peach */
+      background-color: #F8C471 !important;
     }
     .progress-bar.bg-light {
-      background-color: #FFE8D6 !important; /* light peach */
+      background-color: #FFE8D6 !important;
       color: #333 !important;
     }
 
@@ -173,10 +163,23 @@
       border: 2px solid #aaa;
       border-radius: 8px;
       background: #fffefa;
+      position: relative;
     }
     #valueChart {
       width: 600px;
       height: 300px;
+    }
+    /* Label overlay to indicate the chart is the value network */
+    #chartLabel {
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      font-size: 14px;
+      color: #555;
+      background: rgba(255,255,255,0.7);
+      padding: 2px 6px;
+      border-radius: 4px;
+      pointer-events: none;
     }
 
     /***********************************************************************
@@ -202,7 +205,7 @@
 
     /***********************************************************************
      * MOBILE RESPONSIVENESS:
-     * Adjust board and chart for small screens.
+     * For screens <= 640px, adjust board and chart for better fit.
      ***********************************************************************/
     @media (max-width: 640px) {
       .board {
@@ -210,7 +213,7 @@
         max-width: none;
         grid-template-columns: repeat(8, 1fr);
         grid-template-rows: repeat(8, 1fr);
-        gap: 4px;       /* Increased gap for a bit more padding between cells */
+        gap: 4px;
         padding: 6px;
         margin-bottom: 10px;
       }
@@ -245,13 +248,14 @@
       <button id="resetBtn" class="btn btn-primary me-3">Reset Game</button>
       <!-- Hints switch -->
       <div class="form-check form-switch align-self-center me-3">
-        <input class="form-check-input" type="checkbox" id="hintsSwitch">
-        <label class="form-check-label" for="hintsSwitch">Show Hints</label>
+        <input class="form-check-input" type="checkbox" id="hintsSwitch" checked>
+        <label class="form-check-label" for="hintsSwitch">Hints</label>
       </div>
       <!-- Policy Brain Visualization Switch -->
       <div class="form-check form-switch align-self-center">
-        <input class="form-check-input" type="checkbox" id="agentBrainSwitch">
-        <label class="form-check-label" for="agentBrainSwitch">Show AI's Thoughts</label>
+        <!-- Set checked so the policy shows by default -->
+        <input class="form-check-input" type="checkbox" id="agentBrainSwitch" checked>
+        <label class="form-check-label" for="agentBrainSwitch">Policy</label>
       </div>
     </div>
 
@@ -287,9 +291,10 @@
     <div id="status" class="text-center"></div>
     <div id="remainingStones" class="text-center"></div>
 
-    <!-- Minimal chart for AI's Score -->
+    <!-- Minimal chart for AI's Score with an overlay label -->
     <div id="valueChartContainer">
       <canvas id="valueChart"></canvas>
+      <div id="chartLabel">Value Network</div>
     </div>
   </div>
 
@@ -312,8 +317,8 @@
     let policySession = null;
     let valueSession = null;
 
-    let hintsEnabled = false;
-    let agentBrainEnabled = false;
+    let hintsEnabled = true;
+    let agentBrainEnabled = true;
     let agentProbs = new Array(65).fill(0);
 
     let previewElements = [];
@@ -372,9 +377,7 @@
           }]
         },
         options: {
-          plugins: {
-            legend: { display: false }
-          },
+          plugins: { legend: { display: false } },
           scales: {
             x: { display: false },
             y: { display: false, min: -1, max: 1 }
@@ -405,6 +408,9 @@
       if (valueChart) {
         valueChart.data.labels = [];
         valueChart.data.datasets[0].data = [];
+        valueChart.update();
+        valueChart.data.labels.push(moveCount);
+        valueChart.data.datasets[0].data.push(0.0);
         valueChart.update();
       }
 
@@ -493,9 +499,7 @@
 
     function clearPreview() {
       previewElements.forEach(el => {
-        if (el.classList.contains('ghost')) {
-          el.remove();
-        }
+        if (el.classList.contains('ghost')) { el.remove(); }
         el.classList.remove('preview-flip');
       });
       previewElements = [];
