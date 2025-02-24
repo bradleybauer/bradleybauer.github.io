@@ -2,31 +2,34 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Othello AI (Perfect-Fit Board + Hover Preview, Inset Highlight)</title>
+  <title>Othello AI (Policy + Value Visualization)</title>
+
+  <!-- Bootstrap for layout -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <!-- Chart.js for the line chart -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
   <style>
     body {
       background: #f0f2f5;
       color: #333;
       font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-
     .container {
       max-width: 800px;
       margin: 0 auto;
       padding-top: 20px;
     }
-
     h1, .text-center {
       color: #333;
     }
 
-    /* 
-      The board is a fixed 430px width to exactly fit:
-      - 8 columns × 50px each = 400px
-      - 7 gaps × 2px = 14px
-      - 2×(8px padding) = 16px
-      => total 430px
+    /*
+      Board is a fixed 430px wide to precisely fit:
+      - 8 columns x 50px = 400px
+      - 7 gaps x 2px = 14px
+      - 2*(8px padding) = 16px
+      => 400+14+16 = 430
     */
     .board {
       width: 430px;
@@ -55,10 +58,7 @@
       background: #5da56d;
     }
 
-    /*
-      LEGAL MOVE HIGHLIGHT
-      Using INSET box-shadow so the ring is drawn *inside* the cell boundary.
-    */
+    /* Inset highlight for legal moves */
     .cell.legal {
       box-shadow: inset 0 0 0 3px #ffeb3b;
       z-index: 2;
@@ -81,16 +81,16 @@
       background: #f9f9f9;
       border: 1px solid #ddd;
     }
-
-    /* A "ghost" piece for hover preview: semitransparent. */
+    /* Ghost piece for hover preview */
     .piece.ghost {
       opacity: 0.5;
     }
 
-    /* Heatmap overlay for AI Brain */
+    /* Heatmap overlay for AI's policy distribution */
     .heatmap {
       position: absolute;
-      top: 0; left: 0;
+      top: 0;
+      left: 0;
       width: 100%;
       height: 100%;
       z-index: 1;
@@ -99,12 +99,13 @@
       border-radius: 4px;
     }
 
-    /* For flipping preview, highlight existing pieces with a ring */
+    /* Preview-flipped pieces get a ring highlight */
     .preview-flip {
       box-shadow: 0 0 0 3px rgba(255, 235, 59, 0.7);
       z-index: 3;
     }
 
+    /* Score bar can match board width (430px) */
     .score-bar-container {
       max-width: 430px;
       margin: 15px auto;
@@ -131,6 +132,23 @@
       margin-top: 8px;
       color: #333;
     }
+
+    /* Style for the "Board Value" text display. */
+    #valueDisplay {
+      font-size: 1.2em;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+
+    /* Make the chart container a bit bigger. */
+    #valueChartContainer {
+      max-width: 600px;
+      margin: 20px auto;
+    }
+    #valueChart {
+      width: 600px;
+      height: 300px;
+    }
   </style>
 </head>
 <body>
@@ -139,18 +157,21 @@
 
     <div class="d-flex justify-content-center mb-3">
       <button id="resetBtn" class="btn btn-primary me-3">Reset Game</button>
+
       <!-- Hints switch -->
       <div class="form-check form-switch align-self-center me-3">
         <input class="form-check-input" type="checkbox" id="hintsSwitch">
         <label class="form-check-label" for="hintsSwitch">Show Hints</label>
       </div>
-      <!-- Agent Brain Visualization Switch -->
+
+      <!-- Policy Brain Visualization Switch -->
       <div class="form-check form-switch align-self-center">
         <input class="form-check-input" type="checkbox" id="agentBrainSwitch">
-        <label class="form-check-label" for="agentBrainSwitch">Show AI Brain</label>
+        <label class="form-check-label" for="agentBrainSwitch">Show AI's Thoughts</label>
       </div>
     </div>
 
+    <!-- Score bar for black vs white disks on the board -->
     <div class="score-bar-container">
       <div class="progress">
         <div 
@@ -178,13 +199,23 @@
       </div>
     </div>
 
+    <!-- The actual game board -->
     <div id="board" class="board"></div>
 
     <div id="status" class="text-center"></div>
     <div id="remainingStones" class="text-center"></div>
+
+    <!-- Board Value display + line chart -->
+    <div class="text-center mt-4">
+      <span>Board Value:</span>
+      <span id="valueDisplay">(waiting)</span>
+    </div>
+    <div id="valueChartContainer">
+      <canvas id="valueChart"></canvas>
+    </div>
   </div>
 
-  <!-- ONNX Runtime Web -->
+  <!-- ONNX Runtime Web for loading models -->
   <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
   <script>
     const BOARD_SIZE = 8;
@@ -196,14 +227,101 @@
     let currentPlayer = BLACK;
     let previousPlayerSkipped = false;
     let gameOver = false;
-    let modelSession = null;
+
+    // Sessions: one for policy, one for value
+    let policySession = null;
+    let valueSession = null;
 
     let hintsEnabled = false;
-    let agentBrainEnabled = false;
+    let agentBrainEnabled = false; 
     let agentProbs = new Array(65).fill(0);
 
     let previewElements = [];
 
+    // For the value chart + animation
+    let valueChart = null;   // Chart.js instance
+    let moveCount = 0;       // increments each time a move is made
+    let lastValue = null;    // for animating the value label
+
+    window.onload = async function() {
+      await loadModels();
+      setupValueChart();  // init the line chart
+
+      resetGame();
+
+      document.getElementById('hintsSwitch').addEventListener('change', function(event) {
+        hintsEnabled = event.target.checked;
+        renderBoard();
+      });
+
+      document.getElementById('agentBrainSwitch').addEventListener('change', function(event) {
+        agentBrainEnabled = event.target.checked;
+        renderBoard();
+      });
+
+      document.getElementById('resetBtn').addEventListener('click', resetGame);
+    };
+
+    /********************
+     *  MODEL LOADING   *
+     ********************/
+    async function loadModels() {
+      try {
+        // Load policy model
+        policySession = await ort.InferenceSession.create('./agent.onnx');
+        console.log("Policy model loaded.");
+        console.log(policySession.inputNames[0])
+
+        // Load separate value model 
+        // (If you have a single model with 2 outputs, adapt accordingly.)
+        valueSession = await ort.InferenceSession.create('./value_model.onnx');
+        console.log("Value model loaded.");
+        console.log(valueSession.inputNames[0])
+      } catch (err) {
+        console.error("Failed to load model:", err);
+        updateStatus("Failed to load ONNX models.");
+      }
+    }
+
+    /******************************
+     * SETUP VALUE CHART (Chart.js)
+     ******************************/
+    function setupValueChart() {
+      const ctx = document.getElementById('valueChart').getContext('2d');
+      valueChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: [],
+          datasets: [{
+            label: 'Board Value',
+            data: [],
+            borderColor: 'rgba(75,192,192,1)',
+            backgroundColor: 'rgba(75,192,192,0.2)',
+            fill: true,
+            tension: 0.1,
+            pointRadius: 3,
+          }]
+        },
+        options: {
+          scales: {
+            x: {
+              title: { display: true, text: 'Move #' }
+            },
+            y: {
+              title: { display: true, text: 'Value' },
+              suggestedMin: 0, // if your value is 0..1
+              suggestedMax: 1
+            }
+          },
+          responsive: true,
+          maintainAspectRatio: false
+        }
+      });
+    }
+
+    /*******************************
+     *  BOARD & GAME STATE LOGIC   *
+     *******************************/
     function initBoard() {
       board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(EMPTY));
       const mid = Math.floor(BOARD_SIZE / 2);
@@ -211,12 +329,24 @@
       board[mid][mid] = WHITE;
       board[mid - 1][mid] = BLACK;
       board[mid][mid - 1] = BLACK;
+
       blackStones = 30;
       whiteStones = 30;
       currentPlayer = BLACK;
       previousPlayerSkipped = false;
       gameOver = false;
+
       agentProbs.fill(0);
+      moveCount = 0;      // reset move count
+      lastValue = null;   // reset lastValue
+      // clear chart data
+      if (valueChart) {
+        valueChart.data.labels = [];
+        valueChart.data.datasets[0].data = [];
+        valueChart.update();
+      }
+
+      document.getElementById('valueDisplay').textContent = '(waiting)';
       updateStatus("Agent's turn (Black).");
     }
 
@@ -239,7 +369,6 @@
           cellDiv.dataset.row = i;
           cellDiv.dataset.col = j;
 
-          // If it's a legal move, highlight + add hover listeners
           if (legalMoves.some(move => move.row === i && move.col === j)) {
             cellDiv.classList.add('legal');
             cellDiv.addEventListener('mouseenter', () => previewMove(i, j));
@@ -248,7 +377,6 @@
 
           cellDiv.addEventListener('click', onCellClick);
 
-          // Show existing piece
           if (board[i][j] === BLACK || board[i][j] === WHITE) {
             const pieceDiv = document.createElement('div');
             pieceDiv.className = 'piece ' + (board[i][j] === BLACK ? 'black' : 'white');
@@ -274,14 +402,19 @@
       updateRemainingStonesMessage();
     }
 
+    function resetGame() {
+      initBoard();
+      renderBoard();
+      setTimeout(agentMove, 500);
+    }
+
     /******************************
-     * PREVIEW FLIPS ON HOVER
+     *  PREVIEW FLIPS ON HOVER
      ******************************/
     function previewMove(row, col) {
       if (currentPlayer !== WHITE || gameOver) return;
       const flips = getFlipsIfMove(row, col, WHITE);
 
-      // Place a ghost piece in that cell
       const cellSelector = `[data-row="${row}"][data-col="${col}"]`;
       const cellElem = document.querySelector(cellSelector);
       if (!cellElem) return;
@@ -291,7 +424,6 @@
       cellElem.appendChild(ghostPiece);
       previewElements.push(ghostPiece);
 
-      // Highlight each piece that would flip
       flips.forEach(pos => {
         const flipCellSelector = `[data-row="${pos.row}"][data-col="${pos.col}"] .piece`;
         const piece = document.querySelector(flipCellSelector);
@@ -321,15 +453,15 @@
           let k = 1;
           let positionsToFlip = [];
           while (true) {
-            let ip = row + k * di;
-            let jp = col + k * dj;
-            if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
+            let ip = row + k*di;
+            let jp = col + k*dj;
+            if (ip<0 || ip>=BOARD_SIZE || jp<0 || jp>=BOARD_SIZE) break;
             if (board[ip][jp] === EMPTY) break;
             if (board[ip][jp] === -player) {
               positionsToFlip.push({ row: ip, col: jp });
             }
             if (board[ip][jp] === player) {
-              if (positionsToFlip.length > 0) {
+              if (positionsToFlip.length>0) {
                 flips.push(...positionsToFlip);
               }
               break;
@@ -341,190 +473,9 @@
       return flips;
     }
 
-    function updateRemainingStonesMessage() {
-      const msgDiv = document.getElementById('remainingStones');
-      if (whiteStones < 3) {
-        msgDiv.innerText = `You have ${whiteStones} pieces left.`;
-      } else {
-        msgDiv.innerText = '';
-      }
-    }
-
-    function updateScoreBar() {
-      let blackCount = 0, whiteCount = 0;
-      for (let i = 0; i < BOARD_SIZE; i++) {
-        for (let j = 0; j < BOARD_SIZE; j++) {
-          if (board[i][j] === BLACK) blackCount++;
-          else if (board[i][j] === WHITE) whiteCount++;
-        }
-      }
-      const total = blackCount + whiteCount;
-      let blackPct = 0, whitePct = 0;
-      if (total > 0) {
-        blackPct = (blackCount / total) * 100;
-        whitePct = (whiteCount / total) * 100;
-      }
-
-      const blackBar = document.getElementById('blackScoreBar');
-      blackBar.style.width = blackPct + '%';
-      blackBar.textContent = `Black: ${blackCount}`;
-      blackBar.setAttribute('aria-valuenow', blackPct.toFixed(1));
-
-      const whiteBar = document.getElementById('whiteScoreBar');
-      whiteBar.style.width = whitePct + '%';
-      whiteBar.textContent = `White: ${whiteCount}`;
-      whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
-    }
-
-    function getColorForProb(prob) {
-      const startR = 255, startG = 229, startB = 229;
-      const endR = 255, endG = 0, endB = 0;
-      const r = Math.round(startR + (endR - startR) * prob);
-      const g = Math.round(startG + (endG - startG) * prob);
-      const b = Math.round(startB + (endB - startB) * prob);
-      return `rgb(${r}, ${g}, ${b})`;
-    }
-
-    function updateStatus(message) {
-      document.getElementById('status').innerText = message;
-    }
-
-    /* Main Othello logic */
-    function getLegalActions(forPlayer) {
-      let legalActions = [];
-      if (forPlayer === BLACK) {
-        if (blackStones <= 0) {
-          legalActions.push(NOOP_ACTION);
-          return legalActions;
-        }
-      } else {
-        if (whiteStones <= 0) {
-          legalActions.push(NOOP_ACTION);
-          return legalActions;
-        }
-      }
-
-      let openPositions = [];
-      for (let i = 0; i < BOARD_SIZE; i++) {
-        for (let j = 0; j < BOARD_SIZE; j++) {
-          if (board[i][j] === EMPTY) {
-            let available = false;
-            for (let di = -1; di <= 1; di++) {
-              for (let dj = -1; dj <= 1; dj++) {
-                if (di === 0 && dj === 0) continue;
-                let ni = i + di, nj = j + dj;
-                if (ni >= 0 && ni < BOARD_SIZE && nj >= 0 && nj < BOARD_SIZE) {
-                  if (board[ni][nj] === -forPlayer) {
-                    available = true;
-                    break;
-                  }
-                }
-              }
-              if (available) break;
-            }
-            if (available) openPositions.push({ row: i, col: j });
-          }
-        }
-      }
-
-      openPositions.forEach(pos => {
-        let valid = false;
-        for (let di = -1; di <= 1; di++) {
-          for (let dj = -1; dj <= 1; dj++) {
-            if (di === 0 && dj === 0) continue;
-            for (let k = 1; k < BOARD_SIZE; k++) {
-              let ip = pos.row + k * di;
-              let jp = pos.col + k * dj;
-              if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
-              if (board[ip][jp] === EMPTY) break;
-              if (board[ip][jp] === -forPlayer) {
-                // possible flips
-              } else if (board[ip][jp] === forPlayer && k >= 2) {
-                valid = true;
-                break;
-              } else {
-                break;
-              }
-            }
-            if (valid) break;
-          }
-          if (valid) legalActions.push({ row: pos.row, col: pos.col });
-        }
-      });
-
-      if (legalActions.length === 0) legalActions.push(NOOP_ACTION);
-      return [...new Set(legalActions.map(JSON.stringify))].map(JSON.parse);
-    }
-
-    function applyMove(action) {
-      let done = false;
-      if (!(action.row === NOOP_ACTION.row && action.col === NOOP_ACTION.col)) {
-        if (currentPlayer === BLACK) {
-          blackStones--;
-        } else {
-          whiteStones--;
-        }
-        const i = action.row, j = action.col;
-        board[i][j] = currentPlayer;
-        for (let di = -1; di <= 1; di++) {
-          for (let dj = -1; dj <= 1; dj++) {
-            if (di === 0 && dj === 0) continue;
-            let k = 1;
-            let positionsToFlip = [];
-            while (true) {
-              let ip = i + k * di;
-              let jp = j + k * dj;
-              if (ip < 0 || ip >= BOARD_SIZE || jp < 0 || jp >= BOARD_SIZE) break;
-              if (board[ip][jp] === EMPTY) break;
-              if (board[ip][jp] === -currentPlayer) {
-                positionsToFlip.push({ row: ip, col: jp });
-              }
-              if (board[ip][jp] === currentPlayer) {
-                if (positionsToFlip.length > 0) {
-                  positionsToFlip.forEach(pos => {
-                    board[pos.row][pos.col] = currentPlayer;
-                  });
-                }
-                break;
-              }
-              k++;
-            }
-          }
-        }
-        previousPlayerSkipped = false;
-      } else {
-        if (previousPlayerSkipped) {
-          done = true;
-        }
-        previousPlayerSkipped = true;
-      }
-      if (board.flat().every(cell => cell !== EMPTY)) {
-        done = true;
-      }
-      currentPlayer = -currentPlayer;
-      return done;
-    }
-
-    async function onCellClick(event) {
-      if (gameOver || currentPlayer !== WHITE) return;
-      const row = parseInt(event.currentTarget.dataset.row);
-      const col = parseInt(event.currentTarget.dataset.col);
-      const legal = getLegalActions(WHITE);
-      let valid = legal.some(a => a.row === row && a.col === col);
-      if (!valid) {
-        updateStatus("Illegal move. Try again.");
-        return;
-      }
-      let gameEnded = applyMove({ row, col });
-      renderBoard();
-      if (gameEnded) {
-        endGame();
-        return;
-      }
-      updateStatus("Agent's turn (Black).");
-      setTimeout(agentMove, 500);
-    }
-
+    /*************************************
+     *  POLICY LOGIC + AI AGENT MOVE
+     *************************************/
     async function agentMove() {
       if (gameOver) return;
 
@@ -536,11 +487,11 @@
       }
       const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
       const feeds = {};
-      feeds[modelSession.inputNames[0]] = tensor;
+      feeds[policySession.inputNames[0]] = tensor;
 
       try {
-        const results = await modelSession.run(feeds);
-        const outputName = modelSession.outputNames[0];
+        const results = await policySession.run(feeds);
+        const outputName = policySession.outputNames[0];
         const logits = results[outputName].data;
 
         const legal = getLegalActions(BLACK);
@@ -548,21 +499,24 @@
         let exps = [];
         for (let move of legal) {
           let index = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
-            ? 64 : move.row * BOARD_SIZE + move.col;
+            ? 64
+            : move.row*BOARD_SIZE + move.col;
           const valExp = Math.exp(logits[index]);
           exps.push({ index, valExp });
           sumExp += valExp;
         }
         agentProbs.fill(0);
         for (let item of exps) {
-          agentProbs[item.index] = item.valExp / sumExp;
+          agentProbs[item.index] = item.valExp/sumExp;
         }
 
+        // pick best move by highest logit
         let bestMove = legal[0];
         let bestLogit = -Infinity;
         for (let move of legal) {
-          let idx = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
-            ? 64 : move.row * BOARD_SIZE + move.col;
+          let idx = (move.row===NOOP_ACTION.row && move.col===NOOP_ACTION.col)
+            ? 64
+            : move.row*BOARD_SIZE + move.col;
           if (logits[idx] > bestLogit) {
             bestLogit = logits[idx];
             bestMove = move;
@@ -571,87 +525,311 @@
 
         let gameEnded = applyMove(bestMove);
         renderBoard();
-        if (gameEnded) {
+        if (!gameEnded) {
+          // After the AI move, update the board value
+          await updateValue();
+          updateStatus("Your turn (White).");
+          checkHumanAutoSkip();
+        } else {
           endGame();
-          return;
         }
-        updateStatus("Your turn (White).");
-        checkHumanAutoSkip();
       } catch (err) {
         console.error(err);
         updateStatus("Error in agent move.");
       }
     }
 
-    function checkHumanAutoSkip() {
-      const legal = getLegalActions(WHITE);
-      if (legal.length === 1 && legal[0].row === NOOP_ACTION.row && legal[0].col === NOOP_ACTION.col) {
-        updateStatus("No legal moves available. Skipping your turn...");
-        setTimeout(() => {
-          let gameEnded = applyMove(NOOP_ACTION);
-          renderBoard();
-          if (gameEnded) {
-            endGame();
-            return;
-          }
-          updateStatus("Agent's turn (Black).");
-          setTimeout(agentMove, 500);
-        }, 1000);
+    /********************************************
+     *  VALUE MODEL: Update Value Over Time
+     ********************************************/
+    async function updateValue() {
+      // Flatten board
+      let inputArray = [];
+      for (let i = 0; i < BOARD_SIZE; i++) {
+        for (let j = 0; j < BOARD_SIZE; j++) {
+          inputArray.push(board[i][j]);
+        }
+      }
+      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
+      const feeds = {};
+      feeds[valueSession.inputNames[0]] = tensor;
+
+      try {
+        const results = await valueSession.run(feeds);
+        const outputName = valueSession.outputNames[0];
+        const val = results[outputName].data[0];
+
+        // increment move count
+        moveCount++;
+        // add data to the chart
+        updateValueChart(val);
+        // animate text
+        animateValueShift(val);
+
+      } catch (err) {
+        console.error("Value model error:", err);
       }
     }
 
+    // push new data point to the chart
+    function updateValueChart(val) {
+      if (!valueChart) return;
+      valueChart.data.labels.push(moveCount);
+      valueChart.data.datasets[0].data.push(val);
+      valueChart.update();
+    }
+
+    // smoothly animate from lastValue -> newVal in the text display
+    function animateValueShift(newVal) {
+      const displaySpan = document.getElementById('valueDisplay');
+      if (lastValue === null) {
+        // first time
+        displaySpan.textContent = newVal.toFixed(3);
+        lastValue = newVal;
+        return;
+      }
+
+      const oldVal = lastValue;
+      let startTime = null;
+      const duration = 600; // ms
+
+      function tick(timestamp) {
+        if (!startTime) startTime = timestamp;
+        const progress = Math.min((timestamp - startTime)/duration, 1);
+        const currentVal = oldVal + (newVal - oldVal)*progress;
+        displaySpan.textContent = currentVal.toFixed(3);
+
+        if (progress<1) {
+          requestAnimationFrame(tick);
+        } else {
+          lastValue = newVal; // done
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    /*******************************
+     *  HUMAN MOVE + UTILITY
+     *******************************/
+    async function onCellClick(event) {
+      if (gameOver || currentPlayer!==WHITE) return;
+      const row = parseInt(event.currentTarget.dataset.row);
+      const col = parseInt(event.currentTarget.dataset.col);
+      const legal = getLegalActions(WHITE);
+      let valid = legal.some(a => a.row===row && a.col===col);
+
+      if (!valid) {
+        updateStatus("Illegal move. Try again.");
+        return;
+      }
+      let gameEnded = applyMove({ row, col });
+      renderBoard();
+      if (!gameEnded) {
+        // after the human move, update the board value
+        await updateValue();
+        updateStatus("Agent's turn (Black).");
+        setTimeout(agentMove, 500);
+      } else {
+        endGame();
+      }
+    }
+
+    function checkHumanAutoSkip() {
+      const legal = getLegalActions(WHITE);
+      if (legal.length===1 && legal[0].row===NOOP_ACTION.row && legal[0].col===NOOP_ACTION.col) {
+        updateStatus("No legal moves available. Skipping your turn...");
+        setTimeout(()=>{
+          let gameEnded = applyMove(NOOP_ACTION);
+          renderBoard();
+          if (!gameEnded) {
+            updateValue(); // update board value after skip
+            updateStatus("Agent's turn (Black).");
+            setTimeout(agentMove, 500);
+          } else {
+            endGame();
+          }
+        },1000);
+      }
+    }
+
+    function applyMove(action) {
+      let done = false;
+      if (!(action.row===NOOP_ACTION.row && action.col===NOOP_ACTION.col)) {
+        if (currentPlayer===BLACK) blackStones--;
+        else whiteStones--;
+
+        const i = action.row, j = action.col;
+        board[i][j] = currentPlayer;
+
+        for (let di=-1; di<=1; di++) {
+          for (let dj=-1; dj<=1; dj++) {
+            if (di===0 && dj===0) continue;
+            let k=1;
+            let positionsToFlip = [];
+            while(true) {
+              let ip=i + k*di, jp=j + k*dj;
+              if (ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE) break;
+              if (board[ip][jp]===EMPTY) break;
+              if (board[ip][jp]===-currentPlayer) {
+                positionsToFlip.push({ row: ip, col: jp });
+              }
+              if (board[ip][jp]===currentPlayer) {
+                if (positionsToFlip.length>0) {
+                  positionsToFlip.forEach(pos => {
+                    board[pos.row][pos.col] = currentPlayer;
+                  });
+                }
+                break;
+              }
+              k++;
+            }
+          }
+        }
+        previousPlayerSkipped=false;
+      } else {
+        if (previousPlayerSkipped) done=true;
+        previousPlayerSkipped=true;
+      }
+      if (board.flat().every(cell => cell!==EMPTY)) {
+        done=true;
+      }
+      currentPlayer=-currentPlayer;
+      return done;
+    }
+
+    function getLegalActions(forPlayer) {
+      let legalActions=[];
+      if (forPlayer===BLACK) {
+        if (blackStones<=0) {
+          legalActions.push(NOOP_ACTION);
+          return legalActions;
+        }
+      } else {
+        if (whiteStones<=0) {
+          legalActions.push(NOOP_ACTION);
+          return legalActions;
+        }
+      }
+
+      let openPositions=[];
+      for (let i=0; i<BOARD_SIZE; i++) {
+        for (let j=0; j<BOARD_SIZE; j++) {
+          if (board[i][j]===EMPTY) {
+            let available=false;
+            for (let di=-1; di<=1; di++) {
+              for (let dj=-1; dj<=1; dj++) {
+                if (di===0 && dj===0) continue;
+                let ni=i+di, nj=j+dj;
+                if (ni>=0 && ni<BOARD_SIZE && nj>=0 && nj<BOARD_SIZE) {
+                  if (board[ni][nj]===-forPlayer) {
+                    available=true;
+                    break;
+                  }
+                }
+              }
+              if (available) break;
+            }
+            if (available) openPositions.push({ row:i, col:j });
+          }
+        }
+      }
+
+      openPositions.forEach(pos=>{
+        let valid=false;
+        for (let di=-1; di<=1; di++) {
+          for (let dj=-1; dj<=1; dj++) {
+            if (di===0 && dj===0) continue;
+            for (let k=1; k<BOARD_SIZE; k++) {
+              let ip=pos.row + k*di, jp=pos.col + k*dj;
+              if (ip<0||ip>=BOARD_SIZE||jp<0||jp>=BOARD_SIZE) break;
+              if (board[ip][jp]===EMPTY) break;
+              if (board[ip][jp]===-forPlayer) {
+                // possible flips
+              } else if (board[ip][jp]===forPlayer && k>=2) {
+                valid=true;
+                break;
+              } else {
+                break;
+              }
+            }
+            if (valid) break;
+          }
+          if (valid) legalActions.push({ row: pos.row, col: pos.col });
+        }
+      });
+
+      if (legalActions.length===0) legalActions.push(NOOP_ACTION);
+      return [...new Set(legalActions.map(JSON.stringify))].map(JSON.parse);
+    }
+
     function endGame() {
-      gameOver = true;
-      let blackCount = 0, whiteCount = 0;
-      board.forEach(row => {
-        row.forEach(cell => {
-          if (cell === BLACK) blackCount++;
-          if (cell === WHITE) whiteCount++;
+      gameOver=true;
+      let blackCount=0, whiteCount=0;
+      board.forEach(row=>{
+        row.forEach(cell=>{
+          if (cell===BLACK) blackCount++;
+          if (cell===WHITE) whiteCount++;
         });
       });
-      let message = `Game over. Black: ${blackCount}, White: ${whiteCount}. `;
-      if (blackCount > whiteCount) {
-        message += "YOU LOSE!";
-      } else if (whiteCount > blackCount) {
-        message += "You win!";
+      let message=`Game over. Black: ${blackCount}, White: ${whiteCount}. `;
+      if (blackCount>whiteCount) {
+        message+="YOU LOSE!";
+      } else if (whiteCount>blackCount) {
+        message+="You win!";
       } else {
-        message += "It's a draw!";
+        message+="It's a draw!";
       }
       updateStatus(message);
     }
 
-    function resetGame() {
-      initBoard();
-      renderBoard();
-      setTimeout(agentMove, 500);
-    }
-
-    async function loadModel() {
-      try {
-        modelSession = await ort.InferenceSession.create('./agent.onnx');
-        console.log("Model loaded.");
-      } catch (err) {
-        console.error("Failed to load model:", err);
-        updateStatus("Failed to load ONNX model.");
+    function updateRemainingStonesMessage() {
+      const msgDiv=document.getElementById('remainingStones');
+      if (whiteStones<3) {
+        msgDiv.innerText=`You have ${whiteStones} pieces left.`;
+      } else {
+        msgDiv.innerText='';
       }
     }
 
-    window.onload = async function() {
-      await loadModel();
-      resetGame();
+    function updateScoreBar() {
+      let blackCount=0, whiteCount=0;
+      for (let i=0; i<BOARD_SIZE; i++) {
+        for (let j=0; j<BOARD_SIZE; j++) {
+          if (board[i][j]===BLACK) blackCount++;
+          else if (board[i][j]===WHITE) whiteCount++;
+        }
+      }
+      const total=blackCount+whiteCount;
+      let blackPct=0, whitePct=0;
+      if (total>0) {
+        blackPct=(blackCount/total)*100;
+        whitePct=(whiteCount/total)*100;
+      }
 
-      document.getElementById('hintsSwitch').addEventListener('change', function(event) {
-        hintsEnabled = event.target.checked;
-        renderBoard();
-      });
+      const blackBar=document.getElementById('blackScoreBar');
+      blackBar.style.width=blackPct+'%';
+      blackBar.textContent=`Black: ${blackCount}`;
+      blackBar.setAttribute('aria-valuenow', blackPct.toFixed(1));
 
-      document.getElementById('agentBrainSwitch').addEventListener('change', function(event) {
-        agentBrainEnabled = event.target.checked;
-        renderBoard();
-      });
-    };
+      const whiteBar=document.getElementById('whiteScoreBar');
+      whiteBar.style.width=whitePct+'%';
+      whiteBar.textContent=`White: ${whiteCount}`;
+      whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
+    }
 
-    document.getElementById('resetBtn').addEventListener('click', resetGame);
+    function updateStatus(message) {
+      document.getElementById('status').innerText=message;
+    }
+
+    function getColorForProb(prob) {
+      // red-ish scale for policy heatmap
+      const startR=255, startG=229, startB=229;
+      const endR=255, endG=0, endB=0;
+      const r=Math.round(startR+(endR-startR)*prob);
+      const g=Math.round(startG+(endG-startG)*prob);
+      const b=Math.round(startB+(endB-startB)*prob);
+      return `rgb(${r},${g},${b})`;
+    }
   </script>
 </body>
 </html>
