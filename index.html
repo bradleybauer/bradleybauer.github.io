@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <!-- Ensures proper scaling on mobile devices -->
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Othello AI (Pastel Diagonal + Flip Pop + Mobile Responsive + History)</title>
+  <title>Othello AI (Pastel Diagonal + Flip Pop + Mobile Responsive)</title>
 
   <!-- Bootstrap for layout -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
@@ -41,23 +41,19 @@
       color: #444;
     }
 
-    /* Board styling */
+    /* Board styling - dimensions set dynamically via JS */
     .board {
-      max-width: 430px;
-      width: 430px;
       display: grid;
-      grid-template-columns: repeat(8, 50px);
-      grid-template-rows: repeat(8, 50px);
       gap: 2px;
       padding: 8px;
-      background: #a5dee5; /* pastel teal */
+      background: #a5dee5;
       box-shadow: 0 2px 8px rgba(0,0,0,0.15);
       border-radius: 8px;
       margin: 0 auto;
       position: relative;
     }
     .cell {
-      background: #bae8e8; /* aqua */
+      background: #bae8e8;
       border-radius: 4px;
       position: relative;
       cursor: pointer;
@@ -150,85 +146,18 @@
       pointer-events: none;
     }
 
-    /* Move History Timeline */
-    #historyContainer {
-      max-width: 600px;
-      margin: 20px auto;
-      padding: 10px;
-      border: 2px solid #aaa;
-      border-radius: 8px;
-      background: #fffefa;
-      overflow-x: auto;
-      display: flex;
-      justify-content: center;
-      gap: 10px;
-    }
-    .history-thumb {
-      flex: 0 0 auto;
-      width: 80px;
-      height: 80px;
-      border: none;
-      border-radius: 4px;
-      cursor: pointer;
-      transition: border 0.2s ease;
-    }
-    .history-thumb.selected { border: 3px solid #f19cbb; }
-    .thumb-board {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      grid-template-rows: repeat(8, 1fr);
-      width: 100%;
-      height: 100%;
-      background: #a5dee5;
-    }
-    .thumb-cell {
-      width: 100%;
-      height: 100%;
-      background: #bae8e8;
-      border: 0.5px solid #a5dee5;
-    }
-    /* Elegant scrollbar styling for history */
-    #historyContainer::-webkit-scrollbar { height: 8px; }
-    #historyContainer::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
-    #historyContainer::-webkit-scrollbar-track { background: #eee; border-radius: 4px; }
-
-    /* Return Button: placed at top-right of container (overlaid on board) */
-    #returnButton {
-      display: none;
-      position: absolute;
-      top: 10px;
-      right: 10px;
-      z-index: 100;
-    }
-
-    /* End-Game Message styling (integrated into status area) */
-    .endGameMessage {
-      font-size: 2em;
-      font-weight: bold;
-      color: #fff;
-      background: rgba(0,0,0,0.7);
-      padding: 10px;
-      border-radius: 8px;
-      text-align: center;
-      display: inline-block;
-    }
-
     /* MOBILE RESPONSIVENESS */
     @media (max-width: 640px) {
       .board {
-        width: 90vw;
-        max-width: none;
-        grid-template-columns: repeat(8, 1fr);
-        grid-template-rows: repeat(8, 1fr);
         gap: 4px;
         padding: 6px;
         margin-bottom: 10px;
       }
       .cell { width: auto; height: auto; aspect-ratio: 1 / 1; }
-      .score-bar-container, #valueChartContainer, #historyContainer {
+      .score-bar-container, #valueChartContainer {
         max-width: 90vw;
       }
-      #valueChartContainer, #historyContainer { margin-top: 10px; padding: 8px; }
+      #valueChartContainer { margin-top: 10px; padding: 8px; }
       #valueChart { width: 100%; height: auto; }
       #status, #remainingStones { margin-top: 5px; }
     }
@@ -264,9 +193,6 @@
       </div>
     </div>
 
-    <!-- Return button for history preview (visible in preview mode) -->
-    <button id="returnButton" class="btn btn-secondary">Return to Current Game</button>
-
     <!-- The actual game board -->
     <div id="board" class="board"></div>
 
@@ -278,9 +204,6 @@
       <canvas id="valueChart"></canvas>
       <div id="chartLabel">Value Network</div>
     </div>
-
-    <!-- Move History Timeline -->
-    <div id="historyContainer"></div>
   </div>
 
   <!-- ONNX Runtime Web + Chart.js + Bootstrap Bundle -->
@@ -289,9 +212,16 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 
   <script>
-    const BOARD_SIZE = 8;
+    // Set BOARD_SIZE to any even number for a valid Othello board.
+    const BOARD_SIZE = 12;
     const EMPTY = 0, BLACK = 1, WHITE = -1;
+    // NOOP_ACTION uses row = BOARD_SIZE (and later used index = BOARD_SIZE * BOARD_SIZE)
     const NOOP_ACTION = { row: BOARD_SIZE, col: 0 };
+
+    // Parameters for dynamic sizing:
+    const cellSize = 50; // px
+    const gap = 2;       // px (matches CSS .board gap)
+    const padding = 8;   // px (matches CSS .board padding)
 
     let blackStones, whiteStones;
     let board = [];
@@ -299,25 +229,20 @@
     let previousPlayerSkipped = false;
     let gameOver = false;
 
-    // Sessions: one for policy, one for value
+    // ONNX sessions.
     let policySession = null;
     let valueSession = null;
 
     let hintsEnabled = true;
     let agentBrainEnabled = true;
-    let agentProbs = new Array(65).fill(0);
+    let agentProbs = new Array(BOARD_SIZE * BOARD_SIZE + 1).fill(0);
 
-    let previewElements = [];
-
-    // Chart for board value over time
+    // Chart for board value over time.
     let valueChart = null;
     let moveCount = 0;
 
-    // History storage
-    let historyStates = [];
-    let selectedHistoryIndex = -1;
-    let savedState = null;
-    let inPreview = false;
+    // For move previewing.
+    let previewElements = [];
 
     window.onload = async function() {
       await loadModels();
@@ -336,10 +261,6 @@
 
       document.getElementById('resetBtn').addEventListener('click', async () => {
         await resetGame();
-      });
-
-      document.getElementById('returnButton').addEventListener('click', () => {
-        returnToCurrent();
       });
     };
 
@@ -392,12 +313,13 @@
       board[mid - 1][mid] = BLACK;
       board[mid][mid - 1] = BLACK;
 
-      blackStones = 30;
-      whiteStones = 30;
+      // Calculate remaining stones: (total cells - 4) / 2 each.
+      const initialStones = (BOARD_SIZE * BOARD_SIZE - 4) / 2;
+      blackStones = initialStones;
+      whiteStones = initialStones;
       currentPlayer = BLACK;
       previousPlayerSkipped = false;
       gameOver = false;
-
       agentProbs.fill(0);
       moveCount = 0;
 
@@ -406,11 +328,6 @@
         valueChart.data.datasets[0].data = [];
         valueChart.update();
       }
-      historyStates = [];
-      selectedHistoryIndex = -1;
-      inPreview = false;
-      savedState = null;
-      document.getElementById('returnButton').style.display = "none";
       updateStatus("Agent's turn (Black).");
     }
 
@@ -422,14 +339,21 @@
     }
 
     function renderBoard() {
-      // Disable board interaction in preview mode.
-      document.getElementById('board').style.pointerEvents = inPreview ? "none" : "auto";
       const boardDiv = document.getElementById('board');
+
+      // Dynamically set board dimensions.
+      const boardDimension = BOARD_SIZE * cellSize + (BOARD_SIZE - 1) * gap + 2 * padding;
+      boardDiv.style.width = boardDimension + "px";
+      boardDiv.style.height = boardDimension + "px";
+
+      // Set grid layout.
+      boardDiv.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, ${cellSize}px)`;
+      boardDiv.style.gridTemplateRows = `repeat(${BOARD_SIZE}, ${cellSize}px)`;
       boardDiv.innerHTML = '';
       clearPreview();
 
       let legalMoves = [];
-      if (hintsEnabled && currentPlayer === WHITE && !inPreview) {
+      if (hintsEnabled && currentPlayer === WHITE) {
         legalMoves = getLegalActions(WHITE).filter(m => !(m.row === NOOP_ACTION.row && m.col === NOOP_ACTION.col));
       }
 
@@ -440,7 +364,7 @@
           cellDiv.dataset.row = i;
           cellDiv.dataset.col = j;
 
-          if (!inPreview && legalMoves.some(m => m.row === i && m.col === j)) {
+          if (legalMoves.some(m => m.row === i && m.col === j)) {
             cellDiv.classList.add('legal');
             cellDiv.addEventListener('mouseenter', () => previewMove(i, j));
             cellDiv.addEventListener('mouseleave', clearPreview);
@@ -469,14 +393,10 @@
       }
       updateScoreBar();
       updateRemainingStonesMessage();
-      if (!inPreview) {
-        selectedHistoryIndex = historyStates.length - 1;
-      }
-      renderHistory();
     }
 
     function onCellClick(e) {
-      if (gameOver || inPreview || currentPlayer !== WHITE) return;
+      if (gameOver || currentPlayer !== WHITE) return;
       const row = parseInt(e.currentTarget.dataset.row);
       const col = parseInt(e.currentTarget.dataset.col);
       const legal = getLegalActions(WHITE);
@@ -493,13 +413,12 @@
           setTimeout(agentMove, 500);
         });
       } else {
-        recordHistory();
         endGame();
       }
     }
 
     function previewMove(row, col) {
-      if (gameOver || inPreview || currentPlayer !== WHITE) return;
+      if (gameOver || currentPlayer !== WHITE) return;
       const flips = getFlipsIfMove(row, col, WHITE);
       const cellSelector = `[data-row="${row}"][data-col="${col}"]`;
       const cellElem = document.querySelector(cellSelector);
@@ -555,14 +474,14 @@
     }
 
     async function agentMove() {
-      if (gameOver || inPreview) return;
+      if (gameOver) return;
       let inputArray = [];
       for (let i = 0; i < BOARD_SIZE; i++) {
         for (let j = 0; j < BOARD_SIZE; j++) {
           inputArray.push(board[i][j]);
         }
       }
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
+      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [BOARD_SIZE * BOARD_SIZE]);
       const feeds = {};
       feeds[policySession.inputNames[0]] = tensor;
       try {
@@ -574,7 +493,7 @@
         let exps = [];
         for (let move of legal) {
           let idx = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
-            ? 64 : move.row * BOARD_SIZE + move.col;
+            ? BOARD_SIZE * BOARD_SIZE : move.row * BOARD_SIZE + move.col;
           const valExp = Math.exp(logits[idx]);
           exps.push({ index: idx, valExp });
           sumExp += valExp;
@@ -587,7 +506,7 @@
         let bestLogit = -Infinity;
         for (let move of legal) {
           let idx = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col)
-            ? 64 : move.row * BOARD_SIZE + move.col;
+            ? BOARD_SIZE * BOARD_SIZE : move.row * BOARD_SIZE + move.col;
           if (logits[idx] > bestLogit) {
             bestLogit = logits[idx];
             bestMove = move;
@@ -600,7 +519,6 @@
           updateStatus("Your turn (White).");
           checkHumanAutoSkip();
         } else {
-          recordHistory();
           endGame();
         }
       } catch (err) {
@@ -616,7 +534,7 @@
           inputArray.push(board[i][j]);
         }
       }
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
+      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [BOARD_SIZE * BOARD_SIZE]);
       const feeds = {};
       feeds[valueSession.inputNames[0]] = tensor;
       try {
@@ -629,240 +547,8 @@
           valueChart.data.datasets[0].data.push(val);
           valueChart.update();
         }
-        recordHistory();
       } catch (err) {
         console.error("Value model error:", err);
-      }
-    }
-
-    function recordHistory() {
-      if (moveCount === 0) return;
-      // Do not record if board is identical to the last recorded state.
-      if (historyStates.length > 0) {
-        const lastState = historyStates[historyStates.length - 1].board;
-        if (JSON.stringify(lastState) === JSON.stringify(board)) {
-          return;
-        }
-      }
-      historyStates.push({
-        board: board.map(row => row.slice()),
-        currentPlayer: currentPlayer,
-        blackStones: blackStones,
-        whiteStones: whiteStones,
-        moveCount: moveCount
-      });
-      if (!inPreview) {
-        selectedHistoryIndex = historyStates.length - 1;
-      }
-      renderHistory();
-    }
-
-    function renderHistory() {
-      const container = document.getElementById("historyContainer");
-      container.innerHTML = "";
-      historyStates.forEach((state, index) => {
-        const thumb = document.createElement("div");
-        thumb.className = "history-thumb";
-        if (index === selectedHistoryIndex) {
-          thumb.classList.add("selected");
-        }
-        thumb.title = "Move " + state.moveCount;
-        const grid = document.createElement("div");
-        grid.className = "thumb-board";
-        for (let i = 0; i < BOARD_SIZE; i++) {
-          for (let j = 0; j < BOARD_SIZE; j++) {
-            const cell = document.createElement("div");
-            cell.className = "thumb-cell";
-            const val = state.board[i][j];
-            if (val === BLACK) {
-              cell.style.backgroundColor = "#000";
-            } else if (val === WHITE) {
-              cell.style.backgroundColor = "#f9f9f9";
-              cell.style.border = "0.5px solid #ddd";
-            } else {
-              cell.style.backgroundColor = "#bae8e8";
-            }
-            grid.appendChild(cell);
-          }
-        }
-        thumb.appendChild(grid);
-        thumb.addEventListener("click", () => {
-          if (index === historyStates.length - 1) {
-            returnToCurrent();
-          } else {
-            previewHistory(index);
-          }
-        });
-        container.appendChild(thumb);
-      });
-      if (selectedHistoryIndex >= 0 && container.children[selectedHistoryIndex]) {
-        const selectedThumb = container.children[selectedHistoryIndex];
-        container.scrollLeft = selectedThumb.offsetLeft - container.offsetWidth / 2 + selectedThumb.offsetWidth / 2 + 5;
-      } else {
-        container.scrollLeft = container.scrollWidth;
-      }
-    }
-
-    // When a history thumbnail is clicked, update the main board to show that historical state.
-    // Disable moves until user clicks “Return to Current Game.”
-    function previewHistory(index) {
-      // If clicked thumbnail is the live (most recent) state, return automatically.
-      if (index === historyStates.length - 1) {
-        returnToCurrent();
-        return;
-      }
-      selectedHistoryIndex = index;
-      renderHistory();
-      if (!inPreview) {
-        savedState = {
-          board: board.map(row => row.slice()),
-          currentPlayer: currentPlayer,
-          blackStones: blackStones,
-          whiteStones: whiteStones,
-          moveCount: moveCount
-        };
-      }
-      const state = historyStates[index];
-      board = state.board.map(row => row.slice());
-      currentPlayer = state.currentPlayer;
-      blackStones = state.blackStones;
-      whiteStones = state.whiteStones;
-      moveCount = state.moveCount;
-      inPreview = true;
-      // Run policy on the preview state if enabled.
-      if (agentBrainEnabled) {
-        updatePolicyForState();
-      } else {
-        renderBoard();
-      }
-      updateScoreBar();
-      updateStatus("Previewing move " + moveCount + ". Click 'Return to Current Game' to resume play.");
-      document.getElementById('returnButton').style.display = "block";
-    }
-
-    async function returnToCurrent() {
-      if (savedState) {
-        board = savedState.board.map(row => row.slice());
-        currentPlayer = savedState.currentPlayer;
-        blackStones = savedState.blackStones;
-        whiteStones = savedState.whiteStones;
-        moveCount = savedState.moveCount;
-      }
-      inPreview = false;
-      savedState = null;
-      document.getElementById('returnButton').style.display = "none";
-      if (agentBrainEnabled) {
-        await updatePolicyForState();
-      } else {
-        renderBoard();
-      }
-      updateScoreBar();
-      updateStatus("Returned to current game.");
-    }
-
-    async function updatePolicyForState() {
-      let inputArray = [];
-      for (let i = 0; i < BOARD_SIZE; i++) {
-        for (let j = 0; j < BOARD_SIZE; j++) {
-          inputArray.push(board[i][j]);
-        }
-      }
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [64]);
-      const feeds = {};
-      feeds[policySession.inputNames[0]] = tensor;
-      try {
-        const results = await policySession.run(feeds);
-        const outputName = policySession.outputNames[0];
-        const logits = results[outputName].data;
-        const legal = getLegalActions(BLACK);
-        let sumExp = 0;
-        let exps = [];
-        for (let move of legal) {
-          let idx = (move.row === NOOP_ACTION.row && move.col === NOOP_ACTION.col) ? 64 : move.row * BOARD_SIZE + move.col;
-          const valExp = Math.exp(logits[idx]);
-          exps.push({ index: idx, valExp });
-          sumExp += valExp;
-        }
-        agentProbs.fill(0);
-        for (let item of exps) {
-          agentProbs[item.index] = item.valExp / sumExp;
-        }
-        renderBoard();
-      } catch (err) {
-        console.error("Policy update error:", err);
-      }
-    }
-
-    function endGame() {
-      gameOver = true;
-      let blackCount = 0, whiteCount = 0;
-      board.forEach(row => {
-        row.forEach(cell => {
-          if (cell === BLACK) blackCount++;
-          if (cell === WHITE) whiteCount++;
-        });
-      });
-      let msg = `Game over. Black: ${blackCount}, White: ${whiteCount}. `;
-      if (blackCount > whiteCount) msg += "YOU LOSE!";
-      else if (whiteCount > blackCount) msg += "You win!";
-      else msg += "It's a draw!";
-      updateStatus(`<span class="endGameMessage">${msg}</span>`);
-      recordHistory();
-    }
-
-    function updateStatus(msg) {
-      document.getElementById('status').innerHTML = msg;
-    }
-
-    function updateRemainingStonesMessage() {
-      const msgDiv = document.getElementById('remainingStones');
-      msgDiv.innerText = (whiteStones < 3) ? `You have ${whiteStones} pieces left.` : '';
-    }
-
-    function updateScoreBar() {
-      let blackCount = 0, whiteCount = 0;
-      board.forEach(r => {
-        r.forEach(cell => {
-          if (cell === BLACK) blackCount++;
-          else if (cell === WHITE) whiteCount++;
-        });
-      });
-      const total = blackCount + whiteCount;
-      let blackPct = (total > 0) ? (blackCount / total) * 100 : 0;
-      let whitePct = (total > 0) ? (whiteCount / total) * 100 : 0;
-      const blackBar = document.getElementById('blackScoreBar');
-      blackBar.style.width = blackPct + '%';
-      blackBar.textContent = `Black: ${blackCount}`;
-      blackBar.setAttribute('aria-valuenow', blackPct.toFixed(1));
-      const whiteBar = document.getElementById('whiteScoreBar');
-      whiteBar.style.width = whitePct + '%';
-      whiteBar.textContent = `White: ${whiteCount}`;
-      whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
-    }
-
-    function getColorForProb(prob) {
-      const startR = 255, startG = 229, startB = 229;
-      const endR = 255, endG = 0, endB = 0;
-      const r = Math.round(startR + (endR - startR) * prob);
-      const g = Math.round(startG + (endG - startG) * prob);
-      const b = Math.round(startB + (endB - startB) * prob);
-      return `rgb(${r},${g},${b})`;
-    }
-    function checkHumanAutoSkip() {
-      const legal = getLegalActions(WHITE);
-      if (legal.length === 1 && legal[0].row === NOOP_ACTION.row && legal[0].col === NOOP_ACTION.col) {
-        updateStatus("No legal moves available. Skipping your turn...");
-        setTimeout(() => {
-          let ended = applyMove(NOOP_ACTION);
-          renderBoard();
-          if (!ended) {
-            updateValue();
-            updateStatus("Agent's turn (Black).");
-            setTimeout(agentMove, 500);
-          } else {
-            endGame();
-          }
-        }, 1000);
       }
     }
 
@@ -971,6 +657,78 @@
       return [...new Set(legalActions.map(JSON.stringify))].map(JSON.parse);
     }
 
+    function updateStatus(msg) {
+      document.getElementById('status').innerHTML = msg;
+    }
+
+    function updateRemainingStonesMessage() {
+      const msgDiv = document.getElementById('remainingStones');
+      msgDiv.innerText = (whiteStones < 3) ? `You have ${whiteStones} pieces left.` : '';
+    }
+
+    function updateScoreBar() {
+      let blackCount = 0, whiteCount = 0;
+      board.forEach(r => {
+        r.forEach(cell => {
+          if (cell === BLACK) blackCount++;
+          else if (cell === WHITE) whiteCount++;
+        });
+      });
+      const total = blackCount + whiteCount;
+      let blackPct = (total > 0) ? (blackCount / total) * 100 : 0;
+      let whitePct = (total > 0) ? (whiteCount / total) * 100 : 0;
+      const blackBar = document.getElementById('blackScoreBar');
+      blackBar.style.width = blackPct + '%';
+      blackBar.textContent = `Black: ${blackCount}`;
+      blackBar.setAttribute('aria-valuenow', blackPct.toFixed(1));
+      const whiteBar = document.getElementById('whiteScoreBar');
+      whiteBar.style.width = whitePct + '%';
+      whiteBar.textContent = `White: ${whiteCount}`;
+      whiteBar.setAttribute('aria-valuenow', whitePct.toFixed(1));
+    }
+
+    function getColorForProb(prob) {
+      const startR = 255, startG = 229, startB = 229;
+      const endR = 255, endG = 0, endB = 0;
+      const r = Math.round(startR + (endR - startR) * prob);
+      const g = Math.round(startG + (endG - startG) * prob);
+      const b = Math.round(startB + (endB - startB) * prob);
+      return `rgb(${r},${g},${b})`;
+    }
+    
+    function checkHumanAutoSkip() {
+      const legal = getLegalActions(WHITE);
+      if (legal.length === 1 && legal[0].row === NOOP_ACTION.row && legal[0].col === NOOP_ACTION.col) {
+        updateStatus("No legal moves available. Skipping your turn...");
+        setTimeout(() => {
+          let ended = applyMove(NOOP_ACTION);
+          renderBoard();
+          if (!ended) {
+            updateValue();
+            updateStatus("Agent's turn (Black).");
+            setTimeout(agentMove, 500);
+          } else {
+            endGame();
+          }
+        }, 1000);
+      }
+    }
+
+    function endGame() {
+      gameOver = true;
+      let blackCount = 0, whiteCount = 0;
+      board.forEach(row => {
+        row.forEach(cell => {
+          if (cell === BLACK) blackCount++;
+          if (cell === WHITE) whiteCount++;
+        });
+      });
+      let msg = `Game over. Black: ${blackCount}, White: ${whiteCount}. `;
+      if (blackCount > whiteCount) msg += "YOU LOSE!";
+      else if (whiteCount > blackCount) msg += "You win!";
+      else msg += "It's a draw!";
+      updateStatus(`<span class="endGameMessage">${msg}</span>`);
+    }
   </script>
 </body>
 </html>
