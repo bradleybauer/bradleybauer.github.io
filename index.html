@@ -238,9 +238,9 @@
     async function loadModels() {
       try {
         // Use model filenames that depend on BOARD_SIZE.
-        policySession = await ort.InferenceSession.create(`./agent${BOARD_SIZE}.onnx`);
+        policySession = await ort.InferenceSession.create(`./policy${BOARD_SIZE}.onnx`);
         console.log("Policy model loaded for board size " + BOARD_SIZE + "x" + BOARD_SIZE);
-        valueSession = await ort.InferenceSession.create(`./value_model${BOARD_SIZE}.onnx`);
+        valueSession = await ort.InferenceSession.create(`./value${BOARD_SIZE}.onnx`);
         console.log("Value model loaded for board size " + BOARD_SIZE + "x" + BOARD_SIZE);
       } catch (err) {
         console.error("Failed to load model:", err);
@@ -399,7 +399,7 @@
       if (gameOver) return;
       let inputArray = [];
       for (let i = 0; i < BOARD_SIZE; i++) for (let j = 0; j < BOARD_SIZE; j++) inputArray.push(board[i][j]);
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [BOARD_SIZE * BOARD_SIZE]);
+      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [1,BOARD_SIZE * BOARD_SIZE]);
       const feeds = {}; feeds[policySession.inputNames[0]] = tensor;
       try {
         const results = await policySession.run(feeds);
@@ -434,7 +434,7 @@
     async function updateValue() {
       let inputArray = [];
       for (let i = 0; i < BOARD_SIZE; i++) for (let j = 0; j < BOARD_SIZE; j++) inputArray.push(board[i][j]);
-      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [BOARD_SIZE * BOARD_SIZE]);
+      const tensor = new ort.Tensor('float32', Float32Array.from(inputArray), [1,BOARD_SIZE * BOARD_SIZE]);
       const feeds = {}; feeds[valueSession.inputNames[0]] = tensor;
       try {
         const results = await valueSession.run(feeds);
