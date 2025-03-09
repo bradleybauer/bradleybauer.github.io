@@ -268,7 +268,7 @@
       board[mid][mid] = WHITE;
       board[mid - 1][mid] = BLACK;
       board[mid][mid - 1] = BLACK;
-      const initialStones = (BOARD_SIZE * BOARD_SIZE - 4) / 2;
+      const initialStones = BOARD_SIZE * BOARD_SIZE;
       blackStones = initialStones;
       whiteStones = initialStones;
       currentPlayer = BLACK;
